@@ -4,7 +4,12 @@
  * =============================================================================
  * Prototipo funcional estático (HTML5 + CSS3 + Vanilla JavaScript)
  * 
- * ETAPA 1: ESTÉTICA SOBRIA, TIPOGRAFÍA INTER, PITCH REAL Y MODOS DE GRILLA
+ * - Fondo negro (#000) y lienzo delimitado con línea fina gris oscura
+ * - Único modo de dibujo: Módulos LED con damero saturated y etiquetas planas
+ * - Selección múltiple (Shift + clic y recuadro de selección Marquee)
+ * - Barra de herramientas: alineación, centrado en lienzo y distribución con separación
+ * - Guías magnéticas (Snap) a bordes y centros de otras pantallas y del lienzo
+ * - Movimiento con flechas del teclado (1 px, Shift = 10 px)
  * =============================================================================
  */
 
@@ -15,11 +20,8 @@
    * 1. CONSTANTS & DEFAULTS
    * =========================================================================== */
   const STORAGE_KEY = "led_grid_mapper_project_v1";
-
-  // Fuente principal única para todo el renderizado y la interfaz
   const FONT_MAIN = 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif';
 
-  // Lista inicial de ubicaciones sugeridas
   const DEFAULT_LOCATIONS = [
     "Central",
     "Izquierda",
@@ -34,7 +36,7 @@
     "Bandeja"
   ];
 
-  // Paleta de colores sobrios y saturados para damero (rojos, azules, verdes, ámbar, grises)
+  // Paleta de colores sobrios y saturados para damero
   const DEFAULT_COLOR_PALETTES = [
     { c1: "#102a5c", c2: "#1d4ed8" }, // Azul
     { c1: "#4c0519", c2: "#be123c" }, // Rojo
@@ -64,16 +66,14 @@
       rows: 2,
       modPxW: 200,
       modPxH: 400,
-      fixedMode: "pitch_m", // 'pitch_m', 'pitch_px', 'm_px'
+      fixedMode: "pitch_m",
       color1: "#102a5c",
       color2: "#1d4ed8",
       x: 800,
       y: 0,
       labelColor: "#ffffff",
       labelFontWeight: "300",
-      labelFontSize: 0, // 0 = automático
-      viewMode: "inherit", // 'inherit', 'modules', 'subgrid'
-      subgridSize: 0 // 0 = heredar global
+      labelFontSize: 0
     },
     {
       id: "screen_izq",
@@ -98,9 +98,7 @@
       y: 800,
       labelColor: "#ffffff",
       labelFontWeight: "300",
-      labelFontSize: 0,
-      viewMode: "inherit",
-      subgridSize: 0
+      labelFontSize: 0
     },
     {
       id: "screen_der",
@@ -125,9 +123,7 @@
       y: 800,
       labelColor: "#ffffff",
       labelFontWeight: "300",
-      labelFontSize: 0,
-      viewMode: "inherit",
-      subgridSize: 0
+      labelFontSize: 0
     },
     {
       id: "screen_fondo",
@@ -152,9 +148,7 @@
       y: 1600,
       labelColor: "#ffffff",
       labelFontWeight: "300",
-      labelFontSize: 0,
-      viewMode: "inherit",
-      subgridSize: 0
+      labelFontSize: 0
     }
   ];
 
@@ -164,7 +158,8 @@
    * =========================================================================== */
   const state = {
     screens: [],
-    selectedScreenId: null,
+    selectedScreenId: null, // Pantalla principal para formulario
+    selectedScreenIds: [],  // Lista para selección múltiple
     locations: [...DEFAULT_LOCATIONS],
     canvas: {
       mode: "auto", // 'auto' o 'manual'
@@ -185,35 +180,36 @@
       snapEnabled: true,
       showLabels: true,
       showSublabels: true,
-      exportBackground: "#000000",
-      // Modos de visualización globales (Etapa 1.4)
-      viewMode: "modules", // 'modules' o 'subgrid'
-      subgridSize: 32, // 16, 32, 64, 128 px
-      showModuleBorders: true // línea fina de 1 px para borde de módulo
+      canvasBg: "#000000", // '#000000' o 'transparent'
+      distributeSpacing: 0
     },
     interaction: {
       draggingScreenId: null,
-      dragOffsetX: 0,
-      dragOffsetY: 0,
+      dragInitialPositions: {}, // Posiciones de todas las pantallas seleccionadas al iniciar drag
+      dragStartClientX: 0,
+      dragStartClientY: 0,
       hasMoved: false,
-      activeSnapLines: []
+      activeSnapLines: [], // Guías magnéticas visibles
+      marquee: {
+        active: false,
+        startX: 0,
+        startY: 0,
+        currentX: 0,
+        currentY: 0,
+        isShift: false
+      }
     }
   };
 
 
   /* ===========================================================================
-   * 3. CALCULATION ENGINE (Pitch real, cálculo bidireccional y prioridad px/mód)
+   * 3. CALCULATION ENGINE
    * ===========================================================================
    */
   const CalcEngine = {
-    /**
-     * Recalcula las variables de una pantalla según su 'fixedMode' y valida exactitud.
-     * Muestra aviso SOLO cuando los píxeles no den entero o módulos no coincidan.
-     */
     recalculate(screen) {
       const warnings = [];
 
-      // Validar números básicos
       screen.pitch = Math.max(0.01, Number(screen.pitch) || 2.5);
       screen.widthM = Math.max(0.001, Number(screen.widthM) || 1.0);
       screen.heightM = Math.max(0.001, Number(screen.heightM) || 1.0);
@@ -225,14 +221,11 @@
       const mode = screen.fixedMode || "pitch_m";
 
       if (mode === "pitch_m") {
-        // Metros + Pitch fijos -> Calcula Px
         const rawPxW = (screen.widthM * 1000) / screen.pitch;
         const rawPxH = (screen.heightM * 1000) / screen.pitch;
-        
         const roundedPxW = Math.round(rawPxW);
         const roundedPxH = Math.round(rawPxH);
 
-        // Aviso solo si no da entero
         if (Math.abs(rawPxW - roundedPxW) > 0.001 || Math.abs(rawPxH - roundedPxH) > 0.001) {
           warnings.push(`Píxeles no enteros: ${rawPxW.toFixed(2)}×${rawPxH.toFixed(2)} px (redondeado a ${roundedPxW}×${roundedPxH} px).`);
         }
@@ -241,21 +234,18 @@
         screen.heightPx = roundedPxH;
 
       } else if (mode === "pitch_px") {
-        // Pitch + Px fijos -> Calcula Metros
         const calcMW = (screen.widthPx * screen.pitch) / 1000;
         const calcMH = (screen.heightPx * screen.pitch) / 1000;
-        
         screen.widthM = Number(calcMW.toFixed(4));
         screen.heightM = Number(calcMH.toFixed(4));
 
       } else if (mode === "m_px") {
-        // Metros + Px fijos -> Calcula Pitch
         const calcPitchW = (screen.widthM * 1000) / screen.widthPx;
         const calcPitchH = (screen.heightM * 1000) / screen.heightPx;
         screen.pitch = Number(((calcPitchW + calcPitchH) / 2).toFixed(3));
       }
 
-      // Cálculo de módulos (Columnas x Filas)
+      // Módulos
       const exactCols = screen.widthM / screen.moduleWidthM;
       const exactRows = screen.heightM / screen.moduleHeightM;
       const roundedCols = Math.max(1, Math.round(exactCols));
@@ -268,7 +258,7 @@
       screen.cols = roundedCols;
       screen.rows = roundedRows;
 
-      // Píxeles por módulo
+      // Px por módulo
       const rawModPxW = screen.widthPx / screen.cols;
       const rawModPxH = screen.heightPx / screen.rows;
 
@@ -279,17 +269,14 @@
       screen.modPxW = Math.round(rawModPxW);
       screen.modPxH = Math.round(rawModPxH);
 
-      // Pitch real = tamaño del módulo en mm / px por módulo (Etapa 1.3)
+      // Pitch real
       const pitchRealW = (screen.moduleWidthM * 1000) / (rawModPxW || 1);
       const pitchRealH = (screen.moduleHeightM * 1000) / (rawModPxH || 1);
       screen.pitchReal = Number(((pitchRealW + pitchRealH) / 2).toFixed(3));
 
-      // Propiedades de tipografía y visualización por defecto si faltan
       if (!screen.labelFontWeight) screen.labelFontWeight = "300";
       if (!screen.labelColor) screen.labelColor = "#ffffff";
       if (screen.labelFontSize === undefined) screen.labelFontSize = 0;
-      if (!screen.viewMode) screen.viewMode = "inherit";
-      if (screen.subgridSize === undefined) screen.subgridSize = 0;
 
       return {
         screen,
@@ -298,30 +285,20 @@
       };
     },
 
-    /**
-     * Ingreso manual de píxeles por módulo con prioridad sobre el cálculo (Etapa 1.3).
-     * @param {Object} screen 
-     * @param {number} manualModPxW 
-     * @param {number} manualModPxH 
-     */
     setManualModPx(screen, manualModPxW, manualModPxH) {
       screen.modPxW = Math.max(1, parseInt(manualModPxW, 10) || 1);
       screen.modPxH = Math.max(1, parseInt(manualModPxH, 10) || 1);
 
-      // Actualizar resolución total a partir de los módulos
       screen.widthPx = screen.cols * screen.modPxW;
       screen.heightPx = screen.rows * screen.modPxH;
 
-      // Actualizar pitch real
       const pitchRealW = (screen.moduleWidthM * 1000) / screen.modPxW;
       const pitchRealH = (screen.moduleHeightM * 1000) / screen.modPxH;
       screen.pitchReal = Number(((pitchRealW + pitchRealH) / 2).toFixed(3));
 
       if (screen.fixedMode === "pitch_m") {
-        // Si metros fijos, actualiza el pitch para reflejar el pitch real
         screen.pitch = screen.pitchReal;
       } else if (screen.fixedMode === "pitch_px") {
-        // Si pitch fijo, actualiza los metros
         screen.widthM = Number(((screen.widthPx * screen.pitch) / 1000).toFixed(4));
         screen.heightM = Number(((screen.heightPx * screen.pitch) / 1000).toFixed(4));
       } else if (screen.fixedMode === "m_px") {
@@ -331,9 +308,6 @@
       return this.recalculate(screen);
     },
 
-    /**
-     * Ajusta el tamaño en metros a partir de una cantidad exacta de módulos (columnas x filas).
-     */
     setModulesCount(screen, newCols, newRows) {
       screen.cols = Math.max(1, parseInt(newCols, 10) || 1);
       screen.rows = Math.max(1, parseInt(newRows, 10) || 1);
@@ -345,7 +319,7 @@
 
 
   /* ===========================================================================
-   * 4. RENDER ENGINE (Canvas 2D, 1:1 Px Reales, Modos de Grilla y Etiquetas Planas)
+   * 4. RENDER ENGINE (Lienzo Negro con Borde Gris y Damero Módulos LED)
    * ===========================================================================
    */
   const RenderEngine = {
@@ -354,7 +328,7 @@
 
     init(canvasElement) {
       this.canvas = canvasElement;
-      this.ctx = canvasElement.getContext("2d", { alpha: false });
+      this.ctx = canvasElement.getContext("2d", { alpha: true });
     },
 
     computeCanvasBounds() {
@@ -399,147 +373,94 @@
       const ctx = this.ctx;
       ctx.imageSmoothingEnabled = false;
 
-      // 1. Fondo del lienzo
-      ctx.fillStyle = state.settings.exportBackground || "#000000";
-      ctx.fillRect(0, 0, w, h);
-
-      // Marco del lienzo manual
-      if (state.canvas.mode === "manual") {
-        ctx.strokeStyle = "#262626";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+      // 1. Fondo del lienzo (Negro o Transparente)
+      ctx.clearRect(0, 0, w, h);
+      if (state.settings.canvasBg === "transparent") {
+        // En vista interactiva muestra sutil cuadrícula oscura para indicar transparencia
+        this.renderTransparencyGrid(ctx, w, h);
+      } else {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, w, h);
       }
 
-      // 2. Dibujar pantallas
+      // Borde del lienzo en gris oscuro para distinguirlo del área de trabajo (#333333)
+      ctx.strokeStyle = "#333333";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+
+      // 2. Dibujar pantallas en modo Módulos LED (damero físico completo)
       state.screens.forEach(screen => {
-        const isSelected = screen.id === state.selectedScreenId;
-        this.renderScreen(ctx, screen, isSelected);
+        const isSelected = state.selectedScreenIds.includes(screen.id);
+        const isPrimary = screen.id === state.selectedScreenId;
+        this.renderScreen(ctx, screen, isSelected, isPrimary);
       });
 
-      // 3. Guías magnéticas
+      // 3. Guías magnéticas de alineación
       this.renderSnapGuides(ctx);
 
-      // 4. Actualizar HUD
+      // 4. Recuadro de selección Marquee
+      this.renderMarquee(ctx);
+
+      // 5. Actualizar HUD
       const hudResText = document.getElementById("hud-res-text");
       if (hudResText) {
         hudResText.textContent = `${w} × ${h} px`;
       }
     },
 
-    /**
-     * Dibuja una pantalla con soporte para "Módulos LED" o "Plantilla cuadriculada"
-     */
-    renderScreen(ctx, screen, isSelected) {
+    renderTransparencyGrid(ctx, w, h) {
+      const size = 16;
+      for (let y = 0; y < h; y += size) {
+        for (let x = 0; x < w; x += size) {
+          const isOdd = ((x / size) + (y / size)) % 2 === 0;
+          ctx.fillStyle = isOdd ? "#0a0a0a" : "#040404";
+          ctx.fillRect(x, y, Math.min(size, w - x), Math.min(size, h - y));
+        }
+      }
+    },
+
+    renderScreen(ctx, screen, isSelected, isPrimary) {
       const { x, y, widthPx, heightPx, cols, rows, color1, color2 } = screen;
 
       ctx.save();
 
-      // Determinar modo de visualización efectivo (global o por pantalla)
-      const effectiveMode = (screen.viewMode && screen.viewMode !== "inherit") 
-        ? screen.viewMode 
-        : state.settings.viewMode;
-
-      // Determinar tamaño de subcuadrícula efectivo
-      const effectiveSubgridSize = (screen.subgridSize && screen.subgridSize > 0)
-        ? screen.subgridSize
-        : state.settings.subgridSize;
-
       const colStep = widthPx / cols;
       const rowStep = heightPx / rows;
 
-      if (effectiveMode === "subgrid") {
-        // MODO PLANTILLA CUADRICULADA (Etapa 1.4)
-        // Cada módulo se subdivide en cuadrados iguales de tamaño configurable en px
-        const sq = Math.max(4, effectiveSubgridSize);
+      // Dibujar damero donde cada celda es un módulo físico completo
+      for (let r = 0; r < rows; r++) {
+        const cellY = Math.floor(y + r * rowStep);
+        const nextCellY = Math.floor(y + (r + 1) * rowStep);
+        const cellH = nextCellY - cellY;
 
-        for (let r = 0; r < rows; r++) {
-          const modY = Math.floor(y + r * rowStep);
-          const nextModY = Math.floor(y + (r + 1) * rowStep);
-          const modH = nextModY - modY;
+        for (let c = 0; c < cols; c++) {
+          const cellX = Math.floor(x + c * colStep);
+          const nextCellX = Math.floor(x + (c + 1) * colStep);
+          const cellW = nextCellX - cellX;
 
-          for (let c = 0; c < cols; c++) {
-            const modX = Math.floor(x + c * colStep);
-            const nextModX = Math.floor(x + (c + 1) * colStep);
-            const modW = nextModX - modX;
-
-            const subCols = Math.ceil(modW / sq);
-            const subRows = Math.ceil(modH / sq);
-
-            for (let sr = 0; sr < subRows; sr++) {
-              const sqY = modY + sr * sq;
-              const sqH = Math.min(sq, modY + modH - sqY);
-
-              for (let sc = 0; sc < subCols; sc++) {
-                const sqX = modX + sc * sq;
-                const sqW = Math.min(sq, modX + modW - sqX);
-
-                // Damero coherente continuo
-                const globalCol = Math.floor((sqX - x) / sq);
-                const globalRow = Math.floor((sqY - y) / sq);
-                ctx.fillStyle = ((globalCol + globalRow) % 2 === 0) ? color1 : color2;
-                ctx.fillRect(sqX, sqY, sqW, sqH);
-              }
-            }
-          }
-        }
-
-      } else {
-        // MODO MÓDULOS LED (Damero estándar por módulo)
-        for (let r = 0; r < rows; r++) {
-          const cellY = Math.floor(y + r * rowStep);
-          const nextCellY = Math.floor(y + (r + 1) * rowStep);
-          const cellH = nextCellY - cellY;
-
-          for (let c = 0; c < cols; c++) {
-            const cellX = Math.floor(x + c * colStep);
-            const nextCellX = Math.floor(x + (c + 1) * colStep);
-            const cellW = nextCellX - cellX;
-
-            ctx.fillStyle = ((r + c) % 2 === 0) ? color1 : color2;
-            ctx.fillRect(cellX, cellY, cellW, cellH);
-          }
+          ctx.fillStyle = ((r + c) % 2 === 0) ? color1 : color2;
+          ctx.fillRect(cellX, cellY, cellW, cellH);
         }
       }
 
-      // Línea fina de 1 px que marca el borde de cada módulo real (opcional)
-      if (state.settings.showModuleBorders) {
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
-        ctx.lineWidth = 1;
-
-        for (let r = 0; r < rows; r++) {
-          const modY = Math.floor(y + r * rowStep);
-          const nextModY = Math.floor(y + (r + 1) * rowStep);
-          const modH = nextModY - modY;
-
-          for (let c = 0; c < cols; c++) {
-            const modX = Math.floor(x + c * colStep);
-            const nextModX = Math.floor(x + (c + 1) * colStep);
-            const modW = nextModX - modX;
-
-            ctx.strokeRect(modX + 0.5, modY + 0.5, modW - 1, modH - 1);
-          }
-        }
-      }
-
-      // Borde exterior de la pantalla
+      // Borde de la pantalla
       if (isSelected) {
-        // Borde blanco sutil para selección
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = isPrimary ? "#ffffff" : "#cccccc";
+        ctx.lineWidth = isPrimary ? 1.5 : 1;
         ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
 
         // Manijas en las esquinas
-        this.drawHandle(ctx, x, y);
-        this.drawHandle(ctx, x + widthPx, y);
-        this.drawHandle(ctx, x, y + heightPx);
-        this.drawHandle(ctx, x + widthPx, y + heightPx);
+        this.drawHandle(ctx, x, y, isPrimary);
+        this.drawHandle(ctx, x + widthPx, y, isPrimary);
+        this.drawHandle(ctx, x, y + heightPx, isPrimary);
+        this.drawHandle(ctx, x + widthPx, y + heightPx, isPrimary);
       } else {
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
         ctx.lineWidth = 1;
         ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
       }
 
-      // Etiquetas planas (Etapa 1.2)
+      // Etiquetas planas
       if (state.settings.showLabels) {
         this.renderScreenLabels(ctx, screen);
       }
@@ -547,16 +468,11 @@
       ctx.restore();
     },
 
-    /**
-     * Dibuja etiquetas totalmente planas: SIN sombra, SIN contorno, SIN resplandor.
-     * Peso 300 por defecto, color blanco, centradas en la pantalla.
-     */
     renderScreenLabels(ctx, screen) {
       const { x, y, widthPx, heightPx, label, location, cols, rows } = screen;
       const centerX = x + widthPx / 2;
       const centerY = y + heightPx / 2;
 
-      // Tamaño de fuente manual o automático
       let fontSize = (screen.labelFontSize && screen.labelFontSize > 0)
         ? screen.labelFontSize
         : Math.max(14, Math.min(64, Math.floor(Math.min(widthPx, heightPx) / 6)));
@@ -582,7 +498,6 @@
 
       ctx.fillText(label, centerX, labelY);
 
-      // Sub-etiqueta técnica plana (opcional)
       if (showSub) {
         const subFontSize = Math.max(10, Math.floor(fontSize * 0.38));
         ctx.font = `300 ${subFontSize}px ${FONT_MAIN}`;
@@ -600,9 +515,9 @@
       ctx.restore();
     },
 
-    drawHandle(ctx, hx, hy) {
+    drawHandle(ctx, hx, hy, isPrimary) {
       const size = 5;
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = isPrimary ? "#ffffff" : "#a3a3a3";
       ctx.fillRect(hx - size / 2, hy - size / 2, size, size);
       ctx.strokeStyle = "#000000";
       ctx.lineWidth = 1;
@@ -615,7 +530,7 @@
       ctx.save();
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 1;
-      ctx.setLineDash([3, 3]);
+      ctx.setLineDash([4, 4]);
 
       state.interaction.activeSnapLines.forEach(line => {
         ctx.beginPath();
@@ -630,12 +545,34 @@
       });
 
       ctx.restore();
+    },
+
+    renderMarquee(ctx) {
+      const m = state.interaction.marquee;
+      if (!m.active) return;
+
+      const x = Math.min(m.startX, m.currentX);
+      const y = Math.min(m.startY, m.currentY);
+      const w = Math.abs(m.currentX - m.startX);
+      const h = Math.abs(m.currentY - m.startY);
+
+      if (w < 2 && h < 2) return;
+
+      ctx.save();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+
+      ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.fillRect(x, y, w, h);
+      ctx.restore();
     }
   };
 
 
   /* ===========================================================================
-   * 5. VIEWPORT ENGINE (Zoom, Pan y Espacio de Trabajo)
+   * 5. VIEWPORT ENGINE (Zoom y Pan)
    * ===========================================================================
    */
   const ViewportEngine = {
@@ -782,7 +719,7 @@
 
 
   /* ===========================================================================
-   * 6. INTERACTION ENGINE (Arrastre, Selección y Snap Magnético)
+   * 6. INTERACTION ENGINE (Selección múltiple, Marquee, Drag grupal y Snap a bordes y centros)
    * ===========================================================================
    */
   const InteractionEngine = {
@@ -794,6 +731,9 @@
       stage.addEventListener("mousedown", (e) => this.onMouseDown(e));
       window.addEventListener("mousemove", (e) => this.onMouseMove(e));
       window.addEventListener("mouseup", (e) => this.onMouseUp(e));
+
+      // Movimiento con flechas del teclado (1 px y Shift = 10 px)
+      window.addEventListener("keydown", (e) => this.onKeyDown(e));
     },
 
     getScreenAt(canvasX, canvasY) {
@@ -812,115 +752,255 @@
     },
 
     onMouseDown(e) {
-      if (e.button !== 0 || e.spaceKey) return;
+      if (e.button !== 0 || e.code === "Space") return;
 
       const pos = ViewportEngine.clientToCanvasCoords(e.clientX, e.clientY);
       const clickedScreen = this.getScreenAt(pos.x, pos.y);
 
       if (clickedScreen) {
-        state.selectedScreenId = clickedScreen.id;
+        if (e.shiftKey) {
+          // Shift + Clic: Alternar pantalla en la selección múltiple
+          if (state.selectedScreenIds.includes(clickedScreen.id)) {
+            state.selectedScreenIds = state.selectedScreenIds.filter(id => id !== clickedScreen.id);
+            state.selectedScreenId = state.selectedScreenIds[state.selectedScreenIds.length - 1] || null;
+          } else {
+            state.selectedScreenIds.push(clickedScreen.id);
+            state.selectedScreenId = clickedScreen.id;
+          }
+        } else {
+          // Clic normal: Si la pantalla no estaba en la selección, se selecciona sola
+          if (!state.selectedScreenIds.includes(clickedScreen.id)) {
+            state.selectedScreenIds = [clickedScreen.id];
+            state.selectedScreenId = clickedScreen.id;
+          }
+        }
+
+        // Iniciar arrastre para todas las pantallas seleccionadas
         state.interaction.draggingScreenId = clickedScreen.id;
-        state.interaction.dragOffsetX = pos.x - clickedScreen.x;
-        state.interaction.dragOffsetY = pos.y - clickedScreen.y;
+        state.interaction.dragStartClientX = pos.x;
+        state.interaction.dragStartClientY = pos.y;
         state.interaction.hasMoved = false;
 
+        state.interaction.dragInitialPositions = {};
+        state.selectedScreenIds.forEach(id => {
+          const s = state.screens.find(sc => sc.id === id);
+          if (s) {
+            state.interaction.dragInitialPositions[id] = { x: s.x, y: s.y };
+          }
+        });
+
         UIController.updateActiveScreenForm();
-        RenderEngine.render();
-      } else {
-        state.selectedScreenId = null;
-        UIController.updateActiveScreenForm();
+        UIController.updateSelectionHint();
         RenderEngine.render();
 
-        state.viewport.isPanning = true;
-        state.viewport.startPanX = e.clientX - state.viewport.panX;
-        state.viewport.startPanY = e.clientY - state.viewport.panY;
-        ViewportEngine.workspace.classList.add("is-panning");
+      } else {
+        // Clic en fondo vacío: Iniciar recuadro de selección Marquee
+        if (!e.shiftKey) {
+          state.selectedScreenIds = [];
+          state.selectedScreenId = null;
+        }
+
+        state.interaction.marquee = {
+          active: true,
+          startX: pos.x,
+          startY: pos.y,
+          currentX: pos.x,
+          currentY: pos.y,
+          isShift: e.shiftKey
+        };
+
+        UIController.updateActiveScreenForm();
+        UIController.updateSelectionHint();
+        RenderEngine.render();
       }
     },
 
     onMouseMove(e) {
-      if (!state.interaction.draggingScreenId) return;
-
-      const screen = state.screens.find(s => s.id === state.interaction.draggingScreenId);
-      if (!screen) return;
-
-      state.interaction.hasMoved = true;
       const pos = ViewportEngine.clientToCanvasCoords(e.clientX, e.clientY);
 
-      let targetX = pos.x - state.interaction.dragOffsetX;
-      let targetY = pos.y - state.interaction.dragOffsetY;
+      // 1. Arrastre de recuadro de selección Marquee
+      if (state.interaction.marquee.active) {
+        state.interaction.marquee.currentX = pos.x;
+        state.interaction.marquee.currentY = pos.y;
+        RenderEngine.render();
+        return;
+      }
+
+      // 2. Arrastre de pantallas
+      if (!state.interaction.draggingScreenId) return;
+
+      const leaderScreen = state.screens.find(s => s.id === state.interaction.draggingScreenId);
+      const leaderInit = state.interaction.dragInitialPositions[leaderScreen.id];
+      if (!leaderScreen || !leaderInit) return;
+
+      state.interaction.hasMoved = true;
+
+      let deltaX = pos.x - state.interaction.dragStartClientX;
+      let deltaY = pos.y - state.interaction.dragStartClientY;
+
+      let targetLeaderX = leaderInit.x + deltaX;
+      let targetLeaderY = leaderInit.y + deltaY;
 
       state.interaction.activeSnapLines = [];
 
+      // Snap magnético a bordes y centros de otras pantallas y del lienzo
       if (state.settings.snapEnabled) {
-        const snapThreshold = 10;
+        const threshold = 8;
+        const cw = state.canvas.computedWidth;
+        const ch = state.canvas.computedHeight;
 
-        const modW = Math.round(screen.modPxW) || 50;
-        const modH = Math.round(screen.modPxH) || 50;
-        const nearestModX = Math.round(targetX / modW) * modW;
-        const nearestModY = Math.round(targetY / modH) * modH;
+        // Puntos de referencia de la pantalla líder
+        const leaderW = leaderScreen.widthPx;
+        const leaderH = leaderScreen.heightPx;
 
-        if (Math.abs(targetX - nearestModX) < snapThreshold) {
-          targetX = nearestModX;
-        }
-        if (Math.abs(targetY - nearestModY) < snapThreshold) {
-          targetY = nearestModY;
-        }
+        const leaderCenterX = targetLeaderX + leaderW / 2;
+        const leaderRight = targetLeaderX + leaderW;
+        const leaderCenterY = targetLeaderY + leaderH / 2;
+        const leaderBottom = targetLeaderY + leaderH;
 
+        // Metas X: Bordes y centro del lienzo
+        const snapTargetsX = [
+          { val: 0, line: 0 },
+          { val: cw / 2 - leaderW / 2, line: cw / 2 },
+          { val: cw - leaderW, line: cw }
+        ];
+
+        // Metas Y: Bordes y centro del lienzo
+        const snapTargetsY = [
+          { val: 0, line: 0 },
+          { val: ch / 2 - leaderH / 2, line: ch / 2 },
+          { val: ch - leaderH, line: ch }
+        ];
+
+        // Añadir bordes y centros de otras pantallas NO seleccionadas
         state.screens.forEach(other => {
-          if (other.id === screen.id) return;
+          if (state.selectedScreenIds.includes(other.id)) return;
 
-          const edgesX = [
-            { val: other.x, snapTo: other.x },
-            { val: other.x + other.widthPx, snapTo: other.x + other.widthPx },
-            { val: other.x - screen.widthPx, snapTo: other.x },
-            { val: other.x + other.widthPx - screen.widthPx, snapTo: other.x + other.widthPx }
-          ];
+          const ocX = other.x + other.widthPx / 2;
+          const oRight = other.x + other.widthPx;
+          const ocY = other.y + other.heightPx / 2;
+          const oBottom = other.y + other.heightPx;
 
-          edgesX.forEach(edge => {
-            if (Math.abs(targetX - edge.val) < snapThreshold) {
-              targetX = edge.val;
-              state.interaction.activeSnapLines.push({ type: "vertical", val: edge.snapTo });
-            }
-          });
+          // Alineaciones X
+          snapTargetsX.push(
+            { val: other.x, line: other.x },                     // Izq con Izq
+            { val: oRight, line: oRight },                       // Izq con Der
+            { val: other.x - leaderW, line: other.x },           // Der con Izq
+            { val: oRight - leaderW, line: oRight },             // Der con Der
+            { val: ocX - leaderW / 2, line: ocX }                // Centro con Centro
+          );
 
-          const edgesY = [
-            { val: other.y, snapTo: other.y },
-            { val: other.y + other.heightPx, snapTo: other.y + other.heightPx },
-            { val: other.y - screen.heightPx, snapTo: other.y },
-            { val: other.y + other.heightPx - screen.heightPx, snapTo: other.y + other.heightPx }
-          ];
-
-          edgesY.forEach(edge => {
-            if (Math.abs(targetY - edge.val) < snapThreshold) {
-              targetY = edge.val;
-              state.interaction.activeSnapLines.push({ type: "horizontal", val: edge.snapTo });
-            }
-          });
+          // Alineaciones Y
+          snapTargetsY.push(
+            { val: other.y, line: other.y },                     // Arriba con Arriba
+            { val: oBottom, line: oBottom },                     // Arriba con Abajo
+            { val: other.y - leaderH, line: other.y },           // Abajo con Arriba
+            { val: oBottom - leaderH, line: oBottom },           // Abajo con Abajo
+            { val: ocY - leaderH / 2, line: ocY }                // Centro con Centro
+          );
         });
 
-        if (Math.abs(targetX) < snapThreshold) {
-          targetX = 0;
-          state.interaction.activeSnapLines.push({ type: "vertical", val: 0 });
+        // Evaluar mejor snap X
+        let bestDiffX = threshold + 1;
+        let snapX = null;
+        let lineX = null;
+
+        snapTargetsX.forEach(target => {
+          const diff = Math.abs(targetLeaderX - target.val);
+          if (diff < bestDiffX) {
+            bestDiffX = diff;
+            snapX = target.val;
+            lineX = target.line;
+          }
+        });
+
+        if (snapX !== null) {
+          targetLeaderX = snapX;
+          state.interaction.activeSnapLines.push({ type: "vertical", val: lineX });
         }
-        if (Math.abs(targetY) < snapThreshold) {
-          targetY = 0;
-          state.interaction.activeSnapLines.push({ type: "horizontal", val: 0 });
+
+        // Evaluar mejor snap Y
+        let bestDiffY = threshold + 1;
+        let snapY = null;
+        let lineY = null;
+
+        snapTargetsY.forEach(target => {
+          const diff = Math.abs(targetLeaderY - target.val);
+          if (diff < bestDiffY) {
+            bestDiffY = diff;
+            snapY = target.val;
+            lineY = target.line;
+          }
+        });
+
+        if (snapY !== null) {
+          targetLeaderY = snapY;
+          state.interaction.activeSnapLines.push({ type: "horizontal", val: lineY });
         }
       }
 
-      screen.x = Math.max(0, Math.round(targetX));
-      screen.y = Math.max(0, Math.round(targetY));
+      // Desplazamiento final aplicado
+      const finalDeltaX = Math.round(targetLeaderX - leaderInit.x);
+      const finalDeltaY = Math.round(targetLeaderY - leaderInit.y);
 
+      // Mover todas las pantallas seleccionadas al unísono
+      state.selectedScreenIds.forEach(id => {
+        const s = state.screens.find(sc => sc.id === id);
+        const initPos = state.interaction.dragInitialPositions[id];
+        if (s && initPos) {
+          s.x = Math.max(0, initPos.x + finalDeltaX);
+          s.y = Math.max(0, initPos.y + finalDeltaY);
+        }
+      });
+
+      // Sincronizar inputs X/Y del panel para la pantalla activa
       const inputX = document.getElementById("screen-pos-x");
       const inputY = document.getElementById("screen-pos-y");
-      if (inputX) inputX.value = screen.x;
-      if (inputY) inputY.value = screen.y;
+      if (inputX && leaderScreen) inputX.value = leaderScreen.x;
+      if (inputY && leaderScreen) inputY.value = leaderScreen.y;
 
       RenderEngine.render();
     },
 
     onMouseUp() {
+      // Finalizar Marquee
+      if (state.interaction.marquee.active) {
+        const m = state.interaction.marquee;
+        const x1 = Math.min(m.startX, m.currentX);
+        const x2 = Math.max(m.startX, m.currentX);
+        const y1 = Math.min(m.startY, m.currentY);
+        const y2 = Math.max(m.startY, m.currentY);
+
+        if (Math.abs(x2 - x1) > 4 || Math.abs(y2 - y1) > 4) {
+          const selected = [];
+          state.screens.forEach(s => {
+            const sx2 = s.x + s.widthPx;
+            const sy2 = s.y + s.heightPx;
+            const intersects = !(s.x > x2 || sx2 < x1 || s.y > y2 || sy2 < y1);
+            if (intersects) selected.push(s.id);
+          });
+
+          if (m.isShift) {
+            selected.forEach(id => {
+              if (!state.selectedScreenIds.includes(id)) {
+                state.selectedScreenIds.push(id);
+              }
+            });
+          } else {
+            state.selectedScreenIds = selected;
+          }
+
+          state.selectedScreenId = state.selectedScreenIds[0] || null;
+        }
+
+        state.interaction.marquee.active = false;
+        UIController.updateActiveScreenForm();
+        UIController.updateSelectionHint();
+        RenderEngine.render();
+        return;
+      }
+
+      // Finalizar arrastre
       if (state.interaction.draggingScreenId) {
         state.interaction.draggingScreenId = null;
         state.interaction.activeSnapLines = [];
@@ -929,18 +1009,172 @@
           Persistence.saveAuto();
         }
       }
+    },
+
+    onKeyDown(e) {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") {
+        return;
+      }
+
+      if (state.selectedScreenIds.length === 0) return;
+
+      const step = e.shiftKey ? 10 : 1;
+      let dx = 0;
+      let dy = 0;
+
+      if (e.key === "ArrowLeft") dx = -step;
+      else if (e.key === "ArrowRight") dx = step;
+      else if (e.key === "ArrowUp") dy = -step;
+      else if (e.key === "ArrowDown") dy = step;
+      else return;
+
+      e.preventDefault();
+
+      state.selectedScreenIds.forEach(id => {
+        const s = state.screens.find(sc => sc.id === id);
+        if (s) {
+          s.x = Math.max(0, s.x + dx);
+          s.y = Math.max(0, s.y + dy);
+        }
+      });
+
+      const activeScreen = state.screens.find(s => s.id === state.selectedScreenId);
+      if (activeScreen) {
+        const inputX = document.getElementById("screen-pos-x");
+        const inputY = document.getElementById("screen-pos-y");
+        if (inputX) inputX.value = activeScreen.x;
+        if (inputY) inputY.value = activeScreen.y;
+      }
+
+      RenderEngine.render();
+      Persistence.saveAuto();
     }
   };
 
 
   /* ===========================================================================
-   * 7. UI CONTROLLER (Formularios, Tabla Resumen, Settings)
+   * 7. ALIGNMENT & DISTRIBUTION ENGINE (Barra de herramientas de alineación)
+   * ===========================================================================
+   */
+  const AlignmentEngine = {
+    getSelectedScreens() {
+      return state.screens.filter(s => state.selectedScreenIds.includes(s.id));
+    },
+
+    getSelectionBounds(selected) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      selected.forEach(s => {
+        if (s.x < minX) minX = s.x;
+        if (s.x + s.widthPx > maxX) maxX = s.x + s.widthPx;
+        if (s.y < minY) minY = s.y;
+        if (s.y + s.heightPx > maxY) maxY = s.y + s.heightPx;
+      });
+      return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
+    },
+
+    align(type) {
+      const selected = this.getSelectedScreens();
+      if (selected.length === 0) return;
+
+      const cw = state.canvas.computedWidth;
+      const ch = state.canvas.computedHeight;
+
+      if (selected.length === 1) {
+        // Respecto al lienzo si hay una sola pantalla
+        const s = selected[0];
+        if (type === "left") s.x = 0;
+        else if (type === "center-h") s.x = Math.round((cw - s.widthPx) / 2);
+        else if (type === "right") s.x = cw - s.widthPx;
+        else if (type === "top") s.y = 0;
+        else if (type === "center-v") s.y = Math.round((ch - s.heightPx) / 2);
+        else if (type === "bottom") s.y = ch - s.heightPx;
+      } else {
+        // Respecto a la selección si hay varias
+        const b = this.getSelectionBounds(selected);
+        selected.forEach(s => {
+          if (type === "left") s.x = b.minX;
+          else if (type === "center-h") s.x = Math.round(b.minX + (b.width - s.widthPx) / 2);
+          else if (type === "right") s.x = b.maxX - s.widthPx;
+          else if (type === "top") s.y = b.minY;
+          else if (type === "center-v") s.y = Math.round(b.minY + (b.height - s.heightPx) / 2);
+          else if (type === "bottom") s.y = b.maxY - s.heightPx;
+        });
+      }
+
+      this.afterTransform();
+    },
+
+    centerInCanvas(axis) {
+      const selected = this.getSelectedScreens();
+      if (selected.length === 0) return;
+
+      const cw = state.canvas.computedWidth;
+      const ch = state.canvas.computedHeight;
+      const b = this.getSelectionBounds(selected);
+
+      const targetX = Math.round((cw - b.width) / 2);
+      const targetY = Math.round((ch - b.height) / 2);
+
+      const dx = targetX - b.minX;
+      const dy = targetY - b.minY;
+
+      selected.forEach(s => {
+        if (axis === "h" || axis === "both") s.x = Math.max(0, s.x + dx);
+        if (axis === "v" || axis === "both") s.y = Math.max(0, s.y + dy);
+      });
+
+      this.afterTransform();
+    },
+
+    distribute(axis, spacing) {
+      const selected = this.getSelectedScreens();
+      if (selected.length < 2) return;
+
+      const sp = Math.max(0, parseInt(spacing, 10) || 0);
+
+      if (axis === "h") {
+        const sorted = [...selected].sort((a, b) => a.x - b.x);
+        let cur = sorted[0].x;
+        for (let i = 1; i < sorted.length; i++) {
+          cur += sorted[i - 1].widthPx + sp;
+          sorted[i].x = cur;
+        }
+      } else if (axis === "v") {
+        const sorted = [...selected].sort((a, b) => a.y - b.y);
+        let cur = sorted[0].y;
+        for (let i = 1; i < sorted.length; i++) {
+          cur += sorted[i - 1].heightPx + sp;
+          sorted[i].y = cur;
+        }
+      }
+
+      this.afterTransform();
+    },
+
+    afterTransform() {
+      const activeScreen = state.screens.find(s => s.id === state.selectedScreenId);
+      if (activeScreen) {
+        const inputX = document.getElementById("screen-pos-x");
+        const inputY = document.getElementById("screen-pos-y");
+        if (inputX) inputX.value = activeScreen.x;
+        if (inputY) inputY.value = activeScreen.y;
+      }
+
+      RenderEngine.render();
+      Persistence.saveAuto();
+    }
+  };
+
+
+  /* ===========================================================================
+   * 8. UI CONTROLLER (Formularios, Tabla Resumen, Settings)
    * ===========================================================================
    */
   const UIController = {
     init() {
       this.bindTabNavigation();
       this.bindTopbarControls();
+      this.bindAlignmentToolbar();
       this.bindScreenListControls();
       this.bindSettingsControls();
       this.bindLandingScreen();
@@ -948,6 +1182,16 @@
       this.updateScreensSelector();
       this.updateActiveScreenForm();
       this.updateSummaryTable();
+      this.updateSelectionHint();
+    },
+
+    updateSelectionHint() {
+      const hint = document.getElementById("selection-status-hint");
+      if (!hint) return;
+      const count = state.selectedScreenIds.length;
+      hint.textContent = count === 1 
+        ? "1 pantalla seleccionada" 
+        : `${count} pantallas seleccionadas`;
     },
 
     bindLandingScreen() {
@@ -992,44 +1236,16 @@
     },
 
     bindTopbarControls() {
-      // Modos de grilla globales (Etapa 1.4)
-      const globalViewModeSelect = document.getElementById("global-view-mode-select");
-      const globalSubgridConfig = document.getElementById("global-subgrid-config");
-      const globalSubgridSizeSelect = document.getElementById("global-subgrid-size-select");
-      const globalModuleBorders = document.getElementById("global-show-module-borders");
-
-      globalViewModeSelect.value = state.settings.viewMode;
-      globalSubgridSizeSelect.value = String(state.settings.subgridSize);
-      globalModuleBorders.checked = state.settings.showModuleBorders;
-
-      if (state.settings.viewMode === "subgrid") {
-        globalSubgridConfig.classList.remove("hidden");
-      } else {
-        globalSubgridConfig.classList.add("hidden");
+      // Selector de fondo del lienzo (Negro / Transparente)
+      const canvasBgSelect = document.getElementById("canvas-bg-select");
+      if (canvasBgSelect) {
+        canvasBgSelect.value = state.settings.canvasBg;
+        canvasBgSelect.addEventListener("change", (e) => {
+          state.settings.canvasBg = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
       }
-
-      globalViewModeSelect.addEventListener("change", (e) => {
-        state.settings.viewMode = e.target.value;
-        if (state.settings.viewMode === "subgrid") {
-          globalSubgridConfig.classList.remove("hidden");
-        } else {
-          globalSubgridConfig.classList.add("hidden");
-        }
-        RenderEngine.render();
-        Persistence.saveAuto();
-      });
-
-      globalSubgridSizeSelect.addEventListener("change", (e) => {
-        state.settings.subgridSize = parseInt(e.target.value, 10) || 32;
-        RenderEngine.render();
-        Persistence.saveAuto();
-      });
-
-      globalModuleBorders.addEventListener("change", (e) => {
-        state.settings.showModuleBorders = e.target.checked;
-        RenderEngine.render();
-        Persistence.saveAuto();
-      });
 
       // Modo de Lienzo (Auto / Manual)
       const modeSelect = document.getElementById("canvas-mode-select");
@@ -1083,11 +1299,35 @@
         Persistence.saveAuto();
       });
 
-      // HUD Zoom Buttons
+      // HUD Zoom
       document.getElementById("btn-zoom-in").addEventListener("click", () => ViewportEngine.zoomBy(1));
       document.getElementById("btn-zoom-out").addEventListener("click", () => ViewportEngine.zoomBy(-1));
       document.getElementById("btn-zoom-100").addEventListener("click", () => ViewportEngine.zoom100());
       document.getElementById("btn-zoom-fit").addEventListener("click", () => ViewportEngine.zoomToFit());
+    },
+
+    bindAlignmentToolbar() {
+      // Alinear
+      document.getElementById("btn-align-left").addEventListener("click", () => AlignmentEngine.align("left"));
+      document.getElementById("btn-align-center-h").addEventListener("click", () => AlignmentEngine.align("center-h"));
+      document.getElementById("btn-align-right").addEventListener("click", () => AlignmentEngine.align("right"));
+      document.getElementById("btn-align-top").addEventListener("click", () => AlignmentEngine.align("top"));
+      document.getElementById("btn-align-center-v").addEventListener("click", () => AlignmentEngine.align("center-v"));
+      document.getElementById("btn-align-bottom").addEventListener("click", () => AlignmentEngine.align("bottom"));
+
+      // Centrar en lienzo
+      document.getElementById("btn-center-h").addEventListener("click", () => AlignmentEngine.centerInCanvas("h"));
+      document.getElementById("btn-center-v").addEventListener("click", () => AlignmentEngine.centerInCanvas("v"));
+      document.getElementById("btn-center-both").addEventListener("click", () => AlignmentEngine.centerInCanvas("both"));
+
+      // Distribuir
+      const spacingInput = document.getElementById("distribute-spacing-input");
+      document.getElementById("btn-distribute-h").addEventListener("click", () => {
+        AlignmentEngine.distribute("h", spacingInput.value);
+      });
+      document.getElementById("btn-distribute-v").addEventListener("click", () => {
+        AlignmentEngine.distribute("v", spacingInput.value);
+      });
     },
 
     bindScreenListControls() {
@@ -1098,7 +1338,9 @@
 
       select.addEventListener("change", (e) => {
         state.selectedScreenId = e.target.value;
+        state.selectedScreenIds = e.target.value ? [e.target.value] : [];
         this.updateActiveScreenForm();
+        this.updateSelectionHint();
         RenderEngine.render();
       });
 
@@ -1110,11 +1352,9 @@
     bindSettingsControls() {
       const chkLabels = document.getElementById("opt-show-labels");
       const chkSublabels = document.getElementById("opt-show-sublabels");
-      const selBg = document.getElementById("opt-export-bg");
 
       chkLabels.checked = state.settings.showLabels;
       chkSublabels.checked = state.settings.showSublabels;
-      selBg.value = state.settings.exportBackground;
 
       chkLabels.addEventListener("change", (e) => {
         state.settings.showLabels = e.target.checked;
@@ -1128,13 +1368,7 @@
         Persistence.saveAuto();
       });
 
-      selBg.addEventListener("change", (e) => {
-        state.settings.exportBackground = e.target.value;
-        RenderEngine.render();
-        Persistence.saveAuto();
-      });
-
-      // Agregar ubicación
+      // Ubicaciones
       const btnAddLoc = document.getElementById("btn-add-location");
       const inputLoc = document.getElementById("input-new-location");
 
@@ -1154,15 +1388,17 @@
         if (e.key === "Enter") handleAddLoc();
       });
 
-      // Restaurar layout de cruz inicial
+      // Restaurar layout
       document.getElementById("btn-reset-layout").addEventListener("click", () => {
         if (confirm("¿Restaurar el layout inicial de cruz desplegada?")) {
           state.screens = JSON.parse(JSON.stringify(DEFAULT_INITIAL_SCREENS));
           state.screens.forEach(s => CalcEngine.recalculate(s));
           state.selectedScreenId = state.screens[0].id;
+          state.selectedScreenIds = [state.screens[0].id];
           this.updateScreensSelector();
           this.updateActiveScreenForm();
           this.updateSummaryTable();
+          this.updateSelectionHint();
           RenderEngine.render();
           ViewportEngine.zoomToFit();
           Persistence.saveAuto();
@@ -1174,9 +1410,11 @@
         if (confirm("¿Borrar todas las pantallas del lienzo?")) {
           state.screens = [];
           state.selectedScreenId = null;
+          state.selectedScreenIds = [];
           this.updateScreensSelector();
           this.updateActiveScreenForm();
           this.updateSummaryTable();
+          this.updateSelectionHint();
           RenderEngine.render();
           Persistence.saveAuto();
         }
@@ -1224,6 +1462,9 @@
 
       if (!state.selectedScreenId && state.screens.length > 0) {
         state.selectedScreenId = state.screens[0].id;
+        if (state.selectedScreenIds.length === 0) {
+          state.selectedScreenIds = [state.screens[0].id];
+        }
       }
       select.value = state.selectedScreenId || "";
 
@@ -1232,9 +1473,6 @@
       }
     },
 
-    /**
-     * Renderiza el formulario de la pantalla activa con todos los controles de Etapa 1
-     */
     updateActiveScreenForm() {
       const formContainer = document.getElementById("screen-editor-form");
       const select = document.getElementById("active-screen-select");
@@ -1287,7 +1525,7 @@
           </div>
         </div>
 
-        <!-- Tipografía de Etiqueta (Etapa 1.2: plana, peso, tamaño y color) -->
+        <!-- Tipografía de Etiqueta (Plana, Peso, Tamaño y Color) -->
         <div class="editor-card">
           <div class="editor-card-title">
             <span>Etiqueta en Lienzo (Plana)</span>
@@ -1351,7 +1589,7 @@
             <div class="form-group">
               <label>
                 <span>Pitch Real Calculado</span>
-                <span class="label-unit">mm (mód/px)</span>
+                <span class="label-unit">mm</span>
               </label>
               <input type="text" id="screen-pitch-real" class="form-input" value="${screen.pitchReal ? screen.pitchReal.toFixed(3) : screen.pitch.toFixed(3)} mm" readonly>
             </div>
@@ -1391,7 +1629,6 @@
             </div>
           </div>
 
-          <!-- Alerta de cálculo sobria: SOLO si los px no dan entero o módulos no coinciden -->
           <div id="calc-alert-box" class="calc-alert ${isExact ? "exact" : "warning"}">
             <div id="calc-alert-text">
               ${isExact 
@@ -1402,7 +1639,7 @@
           </div>
         </div>
 
-        <!-- Módulos de Gabinete y Px por Módulo con Prioridad Manual (Etapa 1.3) -->
+        <!-- Módulos de Gabinete y Px por Módulo Manual -->
         <div class="editor-card">
           <div class="editor-card-title">
             <span>Módulos de Gabinete</span>
@@ -1436,7 +1673,6 @@
             </div>
           </div>
 
-          <!-- Px por módulo manuales con prioridad -->
           <div class="form-grid-2">
             <div class="form-group">
               <label for="screen-mod-px-w">
@@ -1457,33 +1693,6 @@
           <button id="btn-sync-modules" class="btn btn-secondary btn-sm" title="Ajustar metros para que coincidan con los módulos">
             Ajustar tamaño a estos módulos
           </button>
-        </div>
-
-        <!-- Modo de Visualización por Pantalla (Etapa 1.4) -->
-        <div class="editor-card">
-          <div class="editor-card-title">
-            <span>Modo de Visualización</span>
-          </div>
-          <div class="form-grid-2">
-            <div class="form-group">
-              <label for="screen-view-mode">Modo de grilla</label>
-              <select id="screen-view-mode" class="form-select">
-                <option value="inherit" ${screen.viewMode === "inherit" || !screen.viewMode ? "selected" : ""}>Heredar global</option>
-                <option value="modules" ${screen.viewMode === "modules" ? "selected" : ""}>Módulos LED</option>
-                <option value="subgrid" ${screen.viewMode === "subgrid" ? "selected" : ""}>Plantilla cuadriculada</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="screen-subgrid-size">Cuadrícula (px)</label>
-              <select id="screen-subgrid-size" class="form-select">
-                <option value="0" ${!screen.subgridSize ? "selected" : ""}>Heredar global</option>
-                <option value="16" ${screen.subgridSize === 16 ? "selected" : ""}>16 px</option>
-                <option value="32" ${screen.subgridSize === 32 ? "selected" : ""}>32 px</option>
-                <option value="64" ${screen.subgridSize === 64 ? "selected" : ""}>64 px</option>
-                <option value="128" ${screen.subgridSize === 128 ? "selected" : ""}>128 px</option>
-              </select>
-            </div>
-          </div>
         </div>
 
         <!-- Colores del Damero -->
@@ -1509,7 +1718,7 @@
           </div>
         </div>
 
-        <!-- Posición en Lienzo -->
+        <!-- Posición en Lienzo (Editable por teclado o número) -->
         <div class="editor-card">
           <div class="editor-card-title">
             <span>Posición en Lienzo (px)</span>
@@ -1574,7 +1783,6 @@
     attachFormEvents(screen) {
       const getEl = id => document.getElementById(id);
 
-      // Etiqueta
       getEl("screen-label").addEventListener("input", (e) => {
         screen.label = e.target.value;
         this.updateScreensSelector();
@@ -1583,7 +1791,6 @@
         Persistence.saveAuto();
       });
 
-      // Ubicación
       getEl("screen-location").addEventListener("change", (e) => {
         if (e.target.value === "__custom__") {
           const newLoc = prompt("Nombre de la nueva ubicación:");
@@ -1605,7 +1812,7 @@
         Persistence.saveAuto();
       });
 
-      // Tipografía de etiqueta (Etapa 1.2)
+      // Tipografía de etiqueta
       getEl("screen-label-size").addEventListener("input", (e) => {
         screen.labelFontSize = Math.max(0, parseInt(e.target.value, 10) || 0);
         RenderEngine.render();
@@ -1638,7 +1845,6 @@
         }
       });
 
-      // Dato Fijo
       getEl("screen-fixed-mode").addEventListener("change", (e) => {
         screen.fixedMode = e.target.value;
         this.updateActiveScreenForm();
@@ -1647,13 +1853,11 @@
         Persistence.saveAuto();
       });
 
-      // Pitch Nominal
       getEl("screen-pitch").addEventListener("input", (e) => {
         screen.pitch = parseFloat(e.target.value) || 2.5;
         this.syncFormValues(screen);
       });
 
-      // Metros W y H
       getEl("screen-width-m").addEventListener("input", (e) => {
         screen.widthM = parseFloat(e.target.value) || 1.0;
         this.syncFormValues(screen);
@@ -1664,7 +1868,6 @@
         this.syncFormValues(screen);
       });
 
-      // Píxeles W y H
       getEl("screen-width-px").addEventListener("input", (e) => {
         screen.widthPx = parseInt(e.target.value, 10) || 100;
         this.syncFormValues(screen);
@@ -1675,7 +1878,6 @@
         this.syncFormValues(screen);
       });
 
-      // Tamaño de módulo (ancho y alto de gabinete)
       getEl("screen-mod-w").addEventListener("input", (e) => {
         screen.moduleWidthM = parseFloat(e.target.value) || 0.50;
         this.syncFormValues(screen);
@@ -1686,7 +1888,6 @@
         this.syncFormValues(screen);
       });
 
-      // Columnas y Filas
       const btnSync = getEl("btn-sync-modules");
       const handleSyncModules = () => {
         const c = parseInt(getEl("screen-cols").value, 10) || 1;
@@ -1699,7 +1900,7 @@
       getEl("screen-cols").addEventListener("change", handleSyncModules);
       getEl("screen-rows").addEventListener("change", handleSyncModules);
 
-      // Px por Módulo con Prioridad Manual (Etapa 1.3)
+      // Prioridad manual Px por módulo
       const handleManualModPx = () => {
         const pw = parseInt(getEl("screen-mod-px-w").value, 10) || screen.modPxW;
         const ph = parseInt(getEl("screen-mod-px-h").value, 10) || screen.modPxH;
@@ -1709,19 +1910,6 @@
 
       getEl("screen-mod-px-w").addEventListener("change", handleManualModPx);
       getEl("screen-mod-px-h").addEventListener("change", handleManualModPx);
-
-      // Modo de visualización por pantalla (Etapa 1.4)
-      getEl("screen-view-mode").addEventListener("change", (e) => {
-        screen.viewMode = e.target.value;
-        RenderEngine.render();
-        Persistence.saveAuto();
-      });
-
-      getEl("screen-subgrid-size").addEventListener("change", (e) => {
-        screen.subgridSize = parseInt(e.target.value, 10) || 0;
-        RenderEngine.render();
-        Persistence.saveAuto();
-      });
 
       // Colores Damero
       const col1Picker = getEl("screen-color1-picker");
@@ -1777,9 +1965,6 @@
       });
     },
 
-    /**
-     * Tabla resumen con Pitch Real con 3 decimales (Etapa 1.3)
-     */
     updateSummaryTable() {
       const tbody = document.getElementById("summary-table-body");
       const totalsEl = document.getElementById("summary-totals");
@@ -1804,7 +1989,7 @@
 
         const row = document.createElement("tr");
         row.style.cursor = "pointer";
-        if (screen.id === state.selectedScreenId) {
+        if (state.selectedScreenIds.includes(screen.id)) {
           row.style.background = "#1a1a1a";
         }
 
@@ -1827,11 +2012,24 @@
           </td>
         `;
 
-        row.addEventListener("click", () => {
-          state.selectedScreenId = screen.id;
+        row.addEventListener("click", (e) => {
+          if (e.shiftKey) {
+            if (state.selectedScreenIds.includes(screen.id)) {
+              state.selectedScreenIds = state.selectedScreenIds.filter(id => id !== screen.id);
+              state.selectedScreenId = state.selectedScreenIds[0] || null;
+            } else {
+              state.selectedScreenIds.push(screen.id);
+              state.selectedScreenId = screen.id;
+            }
+          } else {
+            state.selectedScreenIds = [screen.id];
+            state.selectedScreenId = screen.id;
+          }
+
           this.updateScreensSelector();
           this.updateActiveScreenForm();
           this.updateSummaryTable();
+          this.updateSelectionHint();
           RenderEngine.render();
         });
 
@@ -1896,54 +2094,63 @@
         y: newY,
         labelColor: "#ffffff",
         labelFontWeight: "300",
-        labelFontSize: 0,
-        viewMode: "inherit",
-        subgridSize: 0
+        labelFontSize: 0
       };
 
       CalcEngine.recalculate(newScreen);
       state.screens.push(newScreen);
       state.selectedScreenId = newId;
+      state.selectedScreenIds = [newId];
 
       this.updateScreensSelector();
       this.updateActiveScreenForm();
       this.updateSummaryTable();
+      this.updateSelectionHint();
       RenderEngine.render();
       Persistence.saveAuto();
     },
 
     duplicateSelectedScreen() {
-      const original = state.screens.find(s => s.id === state.selectedScreenId);
-      if (!original) return;
+      if (state.selectedScreenIds.length === 0) return;
 
-      const clone = JSON.parse(JSON.stringify(original));
-      clone.id = `screen_${Date.now()}`;
-      clone.label = `${original.label}_copia`;
-      clone.x += 40;
-      clone.y += 40;
+      const newIds = [];
+      state.selectedScreenIds.forEach(id => {
+        const orig = state.screens.find(s => s.id === id);
+        if (orig) {
+          const clone = JSON.parse(JSON.stringify(orig));
+          clone.id = `screen_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+          clone.label = `${orig.label}_copia`;
+          clone.x += 40;
+          clone.y += 40;
+          state.screens.push(clone);
+          newIds.push(clone.id);
+        }
+      });
 
-      state.screens.push(clone);
-      state.selectedScreenId = clone.id;
+      state.selectedScreenIds = newIds;
+      state.selectedScreenId = newIds[0] || null;
 
       this.updateScreensSelector();
       this.updateActiveScreenForm();
       this.updateSummaryTable();
+      this.updateSelectionHint();
       RenderEngine.render();
       Persistence.saveAuto();
     },
 
     deleteSelectedScreen() {
-      if (!state.selectedScreenId) return;
-      const screen = state.screens.find(s => s.id === state.selectedScreenId);
-      if (!screen) return;
+      if (state.selectedScreenIds.length === 0) return;
 
-      if (confirm(`¿Eliminar la pantalla "${screen.label}"?`)) {
-        state.screens = state.screens.filter(s => s.id !== state.selectedScreenId);
+      const count = state.selectedScreenIds.length;
+      if (confirm(`¿Eliminar ${count === 1 ? 'la pantalla seleccionada' : `las ${count} pantallas seleccionadas`}?`)) {
+        state.screens = state.screens.filter(s => !state.selectedScreenIds.includes(s.id));
         state.selectedScreenId = state.screens.length > 0 ? state.screens[0].id : null;
+        state.selectedScreenIds = state.selectedScreenId ? [state.selectedScreenId] : [];
 
         this.updateScreensSelector();
         this.updateActiveScreenForm();
         this.updateSummaryTable();
+        this.updateSelectionHint();
         RenderEngine.render();
         Persistence.saveAuto();
       }
@@ -1952,7 +2159,7 @@
 
 
   /* ===========================================================================
-   * 8. EXPORT & STORAGE (PNG 1:1, JSON y LocalStorage)
+   * 9. EXPORT & STORAGE (PNG 1:1 con fondo negro o transparente, JSON y LocalStorage)
    * ===========================================================================
    */
   const Persistence = {
@@ -1980,14 +2187,20 @@
       const offscreen = document.createElement("canvas");
       offscreen.width = w;
       offscreen.height = h;
-      const oCtx = offscreen.getContext("2d", { alpha: false });
+      const oCtx = offscreen.getContext("2d", { alpha: true });
       oCtx.imageSmoothingEnabled = false;
 
-      oCtx.fillStyle = state.settings.exportBackground || "#000000";
-      oCtx.fillRect(0, 0, w, h);
+      // Si el fondo seleccionado es transparente, limpia con clearRect para canal alfa real
+      if (state.settings.canvasBg === "transparent") {
+        oCtx.clearRect(0, 0, w, h);
+      } else {
+        oCtx.fillStyle = "#000000";
+        oCtx.fillRect(0, 0, w, h);
+      }
 
+      // Dibujar pantallas sin bordes de selección
       state.screens.forEach(screen => {
-        RenderEngine.renderScreen(oCtx, screen, false);
+        RenderEngine.renderScreen(oCtx, screen, false, false);
       });
 
       offscreen.toBlob((blob) => {
@@ -2005,7 +2218,7 @@
 
     exportJSON() {
       const projectData = {
-        version: "1.1",
+        version: "1.2",
         appName: "LED Grid Mapper",
         timestamp: new Date().toISOString(),
         canvas: state.canvas,
@@ -2041,11 +2254,13 @@
 
             state.screens.forEach(s => CalcEngine.recalculate(s));
             state.selectedScreenId = state.screens.length > 0 ? state.screens[0].id : null;
+            state.selectedScreenIds = state.selectedScreenId ? [state.selectedScreenId] : [];
 
             UIController.renderLocationsList();
             UIController.updateScreensSelector();
             UIController.updateActiveScreenForm();
             UIController.updateSummaryTable();
+            UIController.updateSelectionHint();
             RenderEngine.render();
             ViewportEngine.zoomToFit();
             this.saveAuto();
@@ -2066,7 +2281,7 @@
       this.saveTimeout = setTimeout(() => {
         try {
           const projectData = {
-            version: "1.1",
+            version: "1.2",
             timestamp: new Date().toISOString(),
             canvas: state.canvas,
             settings: state.settings,
@@ -2110,7 +2325,7 @@
 
 
   /* ===========================================================================
-   * 9. INITIALIZATION
+   * 10. INITIALIZATION
    * ===========================================================================
    */
   window.addEventListener("DOMContentLoaded", () => {

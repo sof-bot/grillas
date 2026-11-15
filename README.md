@@ -15,39 +15,47 @@ Herramienta técnica web estática (HTML5 + CSS3 + Vanilla JavaScript puro, sin 
 
 ---
 
-## 📐 Funcionalidades (Etapa 1 Implementada)
+## 📐 Funcionalidades y Ajustes
 
-### 1. Estética Sobria y Minimalista
-- Paleta visual profesional: fondo negro absoluto (`#000000`), paneles en grises oscuros, bordes finos de 1 px y textos neutros.
-- Sin sombras, sin degradados decorativos ni elementos distractores o emojis en la interfaz.
-- Portada minimalista con acceso directo al generador.
+### 1. Dibujo Único: Módulos LED
+- **Modo único y directo**: cada celda del damero representa un gabinete físico completo con colores sólidos y saturados.
+- **Sin suavizado**: renderizado pixelado exacto (`image-rendering: pixelated`) con 1 píxel de lienzo = 1 píxel físico del procesador.
+- **Etiquetas planas**: etiqueta centrada en color blanco sólido, sin sombras ni contornos, con tamaño, peso (200 a 600) y color personalizables por pantalla.
 
-### 2. Tipografía Unificada (Inter)
-- Tipografía principal **Inter** cargada desde Google Fonts (pesos 200, 300, 400, 500, 600) con fallback `Helvetica Neue, Arial, sans-serif`.
-- Definida de forma centralizada mediante la variable CSS `--font-main` y la constante `FONT_MAIN` en `app.js`.
-- Títulos de interfaz ligeros (peso 300).
-- **Etiquetas de pantallas planas**: dibujadas en el lienzo de forma plana, en color blanco sólido, sin sombras, sin contornos, sin resplandores ni degradados.
-- Tamaño (px o auto), peso tipográfico (200, 300, 400, 500, 600) y color totalmente configurables por cada pantalla.
+### 2. Lienzo Negro y Delimitación
+- **Fondo de trabajo y lienzo**: negro absoluto (`#000000`).
+- **Borde visible**: el lienzo está delimitado por una línea fina en gris oscuro (`#333333`) para distinguirlo claramente del espacio de trabajo.
+- **Selector de fondo**: opción en la barra superior para alternar entre **Negro (#000)** y **Transparente** (con canal alfa real en el PNG exportado).
 
-### 3. Cálculo Bidireccional y Pitch Real
+### 3. Selección Múltiple y Alineación
+- **Selección múltiple**:
+  - `Shift + clic` para seleccionar o deseleccionar varias pantallas.
+  - **Recuadro de selección (Marquee)**: clic y arrastre sobre el fondo vacío para encerrar y seleccionar múltiples pantallas a la vez.
+  - Al arrastrar cualquier pantalla de la selección, todo el grupo se desplaza conjuntamente manteniendo sus distancias relativas.
+- **Barra de alineación**:
+  - *Alinear*: Izquierda, Centro Horizontal, Derecha, Arriba, Centro Vertical y Abajo. Si hay varias pantallas seleccionadas, se alinean respecto a los límites del grupo; si hay una sola, respecto al lienzo.
+  - *Centrar en el lienzo*: Centro Horizontal, Centro Vertical y Centro Total (aplica tanto a pantallas individuales como al grupo completo).
+  - *Distribuir*: Distribuir Horizontal y Distribuir Vertical con campo numérico de separación en píxeles (por defecto `0 px` para dejarlas perfectamente unidas).
+- **Guías magnéticas (Snap)**:
+  - Detección automática al acercar una pantalla al borde o al centro de otra pantalla o del lienzo.
+  - Línea guía visible en pantalla durante el arrastre.
+  - Casilla para activar o desactivar el snap magnético en cualquier momento.
+- **Desplazamiento con teclado**:
+  - Flechas de dirección: mueven la selección en pasos de **1 px**.
+  - `Shift + Flechas`: mueven la selección en pasos de **10 px**.
+- **Coordenadas exactas**: los campos X e Y siguen siendo editables numéricamente en el panel de control.
+
+### 4. Cálculo Bidireccional y Pitch Real
 - **Fórmula base**: $\text{píxeles} = \frac{\text{metros} \times 1000}{\text{pitch}}$
-- Selector de **Dato Fijo**:
+- **Dato Fijo seleccionable**:
   - *Fijo Pitch + Metros* $\rightarrow$ calcula píxeles.
   - *Fijo Pitch + Px* $\rightarrow$ calcula metros.
   - *Fijo Metros + Px* $\rightarrow$ calcula pitch real.
-- **Pitch Real**: cálculo con 3 decimales $\left(\frac{\text{tamaño módulo (mm)}}{\text{px por módulo}}\right)$, reflejado en la tarjeta de edición y en la Tabla Resumen.
-- **Avisos limpios**: solo se notifica cuando los píxeles calculados no son enteros o la medida física no coincide con un número entero de gabinetes.
-- **Prioridad manual de px por módulo**: es posible ingresar directamente la resolución en píxeles de cada gabinete (ej: 128×128, 128×256 px), prevaleciendo sobre el cálculo automático.
+- **Pitch Real**: cálculo continuo con 3 decimales $\left(\frac{\text{tamaño módulo (mm)}}{\text{px por módulo}}\right)$, reflejado en el editor y en la Tabla Resumen.
+- **Prioridad manual de px por módulo**: posibilidad de fijar la resolución de cada gabinete (ej: 128×128, 128×256 px), prevaleciendo sobre el cálculo.
+- **Avisos limpios**: solo se notifica cuando los píxeles calculados no dan enteros o la medida física no coincide con un número entero de gabinetes.
 
-### 4. Modos de Visualización de Grilla
-- **Módulos LED**: damero estándar donde cada celda corresponde a un gabinete físico.
-- **Plantilla cuadriculada**: subdivisión de cada gabinete en cuadrados uniformes con tamaño configurable en px (16, 32, 64, 128 px) siguiendo el damero de los dos colores de la pantalla.
-- **Bordes de módulo (1 px)**: opción para mostrar u ocultar una línea fina que demarca el contorno de cada módulo físico, ideal sobre la plantilla cuadriculada.
-- Modos seleccionables globalmente desde la barra superior y sobrescribibles individualmente por pantalla.
-- Renderizado exacto sin interpolación (`image-rendering: pixelated`).
-
-### 5. Lienzo y Exportación
-- Navegación con Pan y Zoom (rueda del mouse, botón central o Espacio + arrastre).
-- Snap magnético a módulos y bordes adyacentes.
-- Exportación PNG a escala real exacta 1:1.
-- Guardado y carga de proyectos en formato JSON, con autoguardado continuo en `localStorage`.
+### 5. Exportación y Persistencia
+- **Exportar PNG**: genera una imagen en resolución nativa 1:1, con fondo negro o transparente según la elección del selector.
+- **Guardar / Cargar JSON**: persistencia completa del proyecto.
+- **Autoguardado en `localStorage`**: guarda en segundo plano cada cambio o movimiento.

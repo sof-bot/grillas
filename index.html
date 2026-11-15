@@ -26,7 +26,7 @@
       </div>
 
       <div class="landing-description">
-        <p>Herramienta técnica para cálculo bidireccional de pitch, dimensiones físicas y resolución en píxeles. Diseña distribuciones de gabinetes, visualiza dameros y plantillas cuadriculadas con renderizado exacto sin interpolación.</p>
+        <p>Herramienta técnica para cálculo bidireccional de pitch, dimensiones físicas y resolución en píxeles. Diseña distribuciones de gabinetes y genera grillas de módulos LED con renderizado exacto sin interpolación.</p>
       </div>
 
       <div class="landing-actions">
@@ -51,31 +51,13 @@
       </div>
 
       <div class="nav-center">
-        <!-- Modo de visualización global -->
+        <!-- Selector de fondo del lienzo -->
         <div class="nav-control-group">
-          <label for="global-view-mode-select">Modo de grilla:</label>
-          <select id="global-view-mode-select" class="form-select-sm">
-            <option value="modules">Módulos LED</option>
-            <option value="subgrid">Plantilla cuadriculada</option>
+          <label for="canvas-bg-select">Fondo lienzo:</label>
+          <select id="canvas-bg-select" class="form-select-sm" title="Fondo del lienzo y exportación">
+            <option value="#000000" selected>Negro (#000)</option>
+            <option value="transparent">Transparente</option>
           </select>
-        </div>
-
-        <div id="global-subgrid-config" class="nav-control-group hidden">
-          <label for="global-subgrid-size-select">Cuadrícula:</label>
-          <select id="global-subgrid-size-select" class="form-select-sm">
-            <option value="16">16 px</option>
-            <option value="32" selected>32 px</option>
-            <option value="64">64 px</option>
-            <option value="128">128 px</option>
-          </select>
-        </div>
-
-        <div class="nav-control-group">
-          <label class="toggle-checkbox" title="Mostrar línea de 1 px que marca el borde del módulo real">
-            <input type="checkbox" id="global-show-module-borders" checked>
-            <span class="toggle-switch"></span>
-            <span class="toggle-label">Bordes de módulo</span>
-          </label>
         </div>
 
         <div class="nav-divider"></div>
@@ -105,7 +87,7 @@
         </div>
 
         <div class="nav-control-group snap-toggle-group">
-          <label class="toggle-checkbox" title="Alinear pantallas a módulos y bordes">
+          <label class="toggle-checkbox" title="Alinear pantallas a bordes y centros con guías magnéticas">
             <input type="checkbox" id="snap-enabled" checked>
             <span class="toggle-switch"></span>
             <span class="toggle-label">Snap magnético</span>
@@ -124,6 +106,44 @@
         </div>
       </div>
     </header>
+
+    <!-- BARRA SECUNDARIA DE HERRAMIENTAS: ALINEACIÓN Y DISTRIBUCIÓN -->
+    <section class="sub-nav-toolbar" id="alignment-toolbar">
+      <div class="toolbar-section">
+        <span class="toolbar-title">Alinear:</span>
+        <button id="btn-align-left" class="btn btn-tool" title="Alinear a la izquierda">Izq</button>
+        <button id="btn-align-center-h" class="btn btn-tool" title="Alinear al centro horizontal">Centro H</button>
+        <button id="btn-align-right" class="btn btn-tool" title="Alinear a la derecha">Der</button>
+        <div class="toolbar-divider"></div>
+        <button id="btn-align-top" class="btn btn-tool" title="Alinear arriba">Arriba</button>
+        <button id="btn-align-center-v" class="btn btn-tool" title="Alinear al centro vertical">Centro V</button>
+        <button id="btn-align-bottom" class="btn btn-tool" title="Alinear abajo">Abajo</button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-section">
+        <span class="toolbar-title">Centrar en lienzo:</span>
+        <button id="btn-center-h" class="btn btn-tool" title="Centrar horizontalmente en el lienzo">Centro H</button>
+        <button id="btn-center-v" class="btn btn-tool" title="Centrar verticalmente en el lienzo">Centro V</button>
+        <button id="btn-center-both" class="btn btn-tool" title="Centrar totalmente en el lienzo">Centro Total</button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-section">
+        <span class="toolbar-title">Distribuir:</span>
+        <button id="btn-distribute-h" class="btn btn-tool" title="Distribuir horizontalmente con la separación indicada">Distribuir H</button>
+        <button id="btn-distribute-v" class="btn btn-tool" title="Distribuir verticalmente con la separación indicada">Distribuir V</button>
+        <label for="distribute-spacing-input" class="toolbar-label">Sep:</label>
+        <input type="number" id="distribute-spacing-input" class="form-input-sm spacing-input" value="0" min="0" step="1" title="Separación en píxeles (0 para pegadas)">
+        <span class="toolbar-unit">px</span>
+      </div>
+
+      <div class="toolbar-hint" id="selection-status-hint">
+        <span>0 pantallas seleccionadas</span>
+      </div>
+    </section>
 
 
     <!-- CONTENIDO PRINCIPAL -->
@@ -230,15 +250,6 @@
               <span>Mostrar especificaciones técnicas secundarias</span>
               <input type="checkbox" id="opt-show-sublabels" checked>
             </label>
-            <label class="setting-row">
-              <span>Fondo de exportación</span>
-              <select id="opt-export-bg" class="form-select-sm">
-                <option value="#000000" selected>Negro (#000000)</option>
-                <option value="#0b0f19">Gris oscuro (#0B0F19)</option>
-                <option value="transparent">Transparente</option>
-                <option value="#ffffff">Blanco (#FFFFFF)</option>
-              </select>
-            </label>
           </div>
 
           <div class="settings-group">
@@ -291,6 +302,9 @@
             <button id="btn-zoom-in" class="hud-btn" title="Acercar">+</button>
             <button id="btn-zoom-100" class="hud-btn hud-btn-text" title="Escala real 1:1">1:1</button>
             <button id="btn-zoom-fit" class="hud-btn hud-btn-text" title="Ajustar grilla a la ventana">Ajustar</button>
+          </div>
+          <div class="hud-hint">
+            <span>Shift + Clic o arrastra para selección múltiple • Flechas del teclado para mover (Shift = 10 px)</span>
           </div>
         </div>
 
