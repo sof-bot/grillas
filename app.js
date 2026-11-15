@@ -4,16 +4,7 @@
  * =============================================================================
  * Prototipo funcional estático (HTML5 + CSS3 + Vanilla JavaScript)
  * 
- * Estructura de módulos:
- *  1. CONSTANTS & DEFAULTS: Valores predeterminados y paletas de color
- *  2. STATE: Almacén reactivo del estado de la aplicación
- *  3. CALCULATION ENGINE: Cálculos bidireccionales (pitch, metros, px, módulos)
- *  4. RENDER ENGINE: Motor de renderizado en Canvas 2D (1:1 px reales, damero)
- *  5. VIEWPORT ENGINE: Sistema de navegación (Zoom y Pan con soporte 4K/8K)
- *  6. INTERACTION ENGINE: Selección, arrastre de pantallas y snap magnético
- *  7. UI CONTROLLER: Formularios de control, tabla resumen y tags
- *  8. EXPORT & STORAGE: Exportación PNG a escala real, JSON y localStorage
- *  9. INITIALIZATION: Arranque de la aplicación
+ * ETAPA 1: ESTÉTICA SOBRIA, TIPOGRAFÍA INTER, PITCH REAL Y MODOS DE GRILLA
  * =============================================================================
  */
 
@@ -25,7 +16,10 @@
    * =========================================================================== */
   const STORAGE_KEY = "led_grid_mapper_project_v1";
 
-  // Lista inicial de ubicaciones sugeridas para los eventos/escenarios
+  // Fuente principal única para todo el renderizado y la interfaz
+  const FONT_MAIN = 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif';
+
+  // Lista inicial de ubicaciones sugeridas
   const DEFAULT_LOCATIONS = [
     "Central",
     "Izquierda",
@@ -40,22 +34,18 @@
     "Bandeja"
   ];
 
-  // Paleta de colores para damero por defecto (contrastes altos y modernos)
+  // Paleta de colores sobrios y saturados para damero (rojos, azules, verdes, ámbar, grises)
   const DEFAULT_COLOR_PALETTES = [
-    { c1: "#1e3a8a", c2: "#3b82f6" }, // Azules (Central)
-    { c1: "#831843", c2: "#ec4899" }, // Rosas/Magenta (Izquierda)
-    { c1: "#065f46", c2: "#10b981" }, // Verdes/Esmeralda (Derecha)
-    { c1: "#78350f", c2: "#f59e0b" }, // Ámbar/Naranja (Fondo)
-    { c1: "#4c1d95", c2: "#8b5cf6" }, // Violetas
-    { c1: "#134e4a", c2: "#14b8a6" }  // Cianes
+    { c1: "#102a5c", c2: "#1d4ed8" }, // Azul
+    { c1: "#4c0519", c2: "#be123c" }, // Rojo
+    { c1: "#064e3b", c2: "#047857" }, // Verde
+    { c1: "#451a03", c2: "#b45309" }, // Ámbar
+    { c1: "#2e1065", c2: "#6d28d9" }, // Violeta
+    { c1: "#18181b", c2: "#3f3f46" }  // Grises oscuros
   ];
 
   /**
-   * Layout inicial de ejemplo en forma de cruz desplegada:
-   * - Central (arriba)
-   * - Izquierda y Derecha (a los costados)
-   * - Fondo (abajo)
-   * Dimensiones: módulos estándar de 0.50 x 1.00 m, pitch 2.5 mm -> 2.00 x 2.00 m (800 x 800 px)
+   * Layout inicial de ejemplo en cruz desplegada
    */
   const DEFAULT_INITIAL_SCREENS = [
     {
@@ -63,6 +53,7 @@
       label: "C",
       location: "Central",
       pitch: 2.5,
+      pitchReal: 2.500,
       widthM: 2.00,
       heightM: 2.00,
       widthPx: 800,
@@ -71,17 +62,25 @@
       moduleHeightM: 1.00,
       cols: 4,
       rows: 2,
-      fixedMode: "pitch_m", // Opciones: 'pitch_m', 'pitch_px', 'm_px'
-      color1: "#1e3a8a",
-      color2: "#3b82f6",
+      modPxW: 200,
+      modPxH: 400,
+      fixedMode: "pitch_m", // 'pitch_m', 'pitch_px', 'm_px'
+      color1: "#102a5c",
+      color2: "#1d4ed8",
       x: 800,
-      y: 0
+      y: 0,
+      labelColor: "#ffffff",
+      labelFontWeight: "300",
+      labelFontSize: 0, // 0 = automático
+      viewMode: "inherit", // 'inherit', 'modules', 'subgrid'
+      subgridSize: 0 // 0 = heredar global
     },
     {
       id: "screen_izq",
       label: "i1",
       location: "Izquierda",
       pitch: 2.5,
+      pitchReal: 2.500,
       widthM: 2.00,
       heightM: 2.00,
       widthPx: 800,
@@ -90,17 +89,25 @@
       moduleHeightM: 1.00,
       cols: 4,
       rows: 2,
+      modPxW: 200,
+      modPxH: 400,
       fixedMode: "pitch_m",
-      color1: "#831843",
-      color2: "#ec4899",
+      color1: "#4c0519",
+      color2: "#be123c",
       x: 0,
-      y: 800
+      y: 800,
+      labelColor: "#ffffff",
+      labelFontWeight: "300",
+      labelFontSize: 0,
+      viewMode: "inherit",
+      subgridSize: 0
     },
     {
       id: "screen_der",
       label: "d1",
       location: "Derecha",
       pitch: 2.5,
+      pitchReal: 2.500,
       widthM: 2.00,
       heightM: 2.00,
       widthPx: 800,
@@ -109,17 +116,25 @@
       moduleHeightM: 1.00,
       cols: 4,
       rows: 2,
+      modPxW: 200,
+      modPxH: 400,
       fixedMode: "pitch_m",
-      color1: "#065f46",
-      color2: "#10b981",
+      color1: "#064e3b",
+      color2: "#047857",
       x: 1600,
-      y: 800
+      y: 800,
+      labelColor: "#ffffff",
+      labelFontWeight: "300",
+      labelFontSize: 0,
+      viewMode: "inherit",
+      subgridSize: 0
     },
     {
       id: "screen_fondo",
       label: "fondo",
       location: "Fondo",
       pitch: 2.5,
+      pitchReal: 2.500,
       widthM: 2.00,
       heightM: 2.00,
       widthPx: 800,
@@ -128,11 +143,18 @@
       moduleHeightM: 1.00,
       cols: 4,
       rows: 2,
+      modPxW: 200,
+      modPxH: 400,
       fixedMode: "pitch_m",
-      color1: "#78350f",
-      color2: "#f59e0b",
+      color1: "#451a03",
+      color2: "#b45309",
       x: 800,
-      y: 1600
+      y: 1600,
+      labelColor: "#ffffff",
+      labelFontWeight: "300",
+      labelFontSize: 0,
+      viewMode: "inherit",
+      subgridSize: 0
     }
   ];
 
@@ -152,49 +174,46 @@
       computedHeight: 2400
     },
     viewport: {
-      zoom: 0.35, // Escala actual
-      panX: 80,   // Desplazamiento X en píxeles de pantalla
-      panY: 50,   // Desplazamiento Y en píxeles de pantalla
+      zoom: 0.35,
+      panX: 80,
+      panY: 50,
       isPanning: false,
       startPanX: 0,
       startPanY: 0
     },
     settings: {
       snapEnabled: true,
-      showModuleGrid: true,
       showLabels: true,
       showSublabels: true,
-      exportBackground: "#0b0f19"
+      exportBackground: "#000000",
+      // Modos de visualización globales (Etapa 1.4)
+      viewMode: "modules", // 'modules' o 'subgrid'
+      subgridSize: 32, // 16, 32, 64, 128 px
+      showModuleBorders: true // línea fina de 1 px para borde de módulo
     },
     interaction: {
       draggingScreenId: null,
       dragOffsetX: 0,
       dragOffsetY: 0,
       hasMoved: false,
-      activeSnapLines: [] // Guías visuales de alineación
+      activeSnapLines: []
     }
   };
 
 
   /* ===========================================================================
-   * 3. CALCULATION ENGINE (Cálculo Bidireccional y Validación)
+   * 3. CALCULATION ENGINE (Pitch real, cálculo bidireccional y prioridad px/mód)
    * ===========================================================================
-   * Fórmula base: píxeles = metros * 1000 / pitch
-   * Relación:
-   *  - Fijar pitch + metros -> calcula px
-   *  - Fijar pitch + px     -> calcula metros
-   *  - Fijar metros + px    -> calcula pitch real
    */
   const CalcEngine = {
     /**
      * Recalcula las variables de una pantalla según su 'fixedMode' y valida exactitud.
-     * @param {Object} screen - Objeto pantalla
-     * @returns {Object} { screen, warnings: Array<string>, isExact: boolean }
+     * Muestra aviso SOLO cuando los píxeles no den entero o módulos no coincidan.
      */
     recalculate(screen) {
       const warnings = [];
 
-      // Asegurar números válidos mayores a cero
+      // Validar números básicos
       screen.pitch = Math.max(0.01, Number(screen.pitch) || 2.5);
       screen.widthM = Math.max(0.001, Number(screen.widthM) || 1.0);
       screen.heightM = Math.max(0.001, Number(screen.heightM) || 1.0);
@@ -213,9 +232,9 @@
         const roundedPxW = Math.round(rawPxW);
         const roundedPxH = Math.round(rawPxH);
 
-        // Advertencia si los píxeles no eran enteros
+        // Aviso solo si no da entero
         if (Math.abs(rawPxW - roundedPxW) > 0.001 || Math.abs(rawPxH - roundedPxH) > 0.001) {
-          warnings.push(`Píxeles redondeados: ${rawPxW.toFixed(1)}×${rawPxH.toFixed(1)} px → ${roundedPxW}×${roundedPxH} px.`);
+          warnings.push(`Píxeles no enteros: ${rawPxW.toFixed(2)}×${rawPxH.toFixed(2)} px (redondeado a ${roundedPxW}×${roundedPxH} px).`);
         }
 
         screen.widthPx = roundedPxW;
@@ -230,39 +249,47 @@
         screen.heightM = Number(calcMH.toFixed(4));
 
       } else if (mode === "m_px") {
-        // Metros + Px fijos -> Calcula Pitch real
+        // Metros + Px fijos -> Calcula Pitch
         const calcPitchW = (screen.widthM * 1000) / screen.widthPx;
         const calcPitchH = (screen.heightM * 1000) / screen.heightPx;
-        
-        if (Math.abs(calcPitchW - calcPitchH) > 0.01) {
-          warnings.push(`Pitch no cuadrado: W=${calcPitchW.toFixed(2)} mm, H=${calcPitchH.toFixed(2)} mm.`);
-        }
         screen.pitch = Number(((calcPitchW + calcPitchH) / 2).toFixed(3));
       }
 
-      // Cálculo y validación de módulos (Columnas x Filas)
+      // Cálculo de módulos (Columnas x Filas)
       const exactCols = screen.widthM / screen.moduleWidthM;
       const exactRows = screen.heightM / screen.moduleHeightM;
-
       const roundedCols = Math.max(1, Math.round(exactCols));
       const roundedRows = Math.max(1, Math.round(exactRows));
 
       if (Math.abs(exactCols - roundedCols) > 0.01 || Math.abs(exactRows - roundedRows) > 0.01) {
-        warnings.push(`No coincide con módulos enteros: da ${exactCols.toFixed(2)} × ${exactRows.toFixed(2)} módulos.`);
+        warnings.push(`Módulos no enteros: ${exactCols.toFixed(2)} × ${exactRows.toFixed(2)} módulos.`);
       }
 
       screen.cols = roundedCols;
       screen.rows = roundedRows;
 
       // Píxeles por módulo
-      const modPxW = screen.widthPx / screen.cols;
-      const modPxH = screen.heightPx / screen.rows;
-      if (Math.abs(modPxW - Math.round(modPxW)) > 0.001 || Math.abs(modPxH - Math.round(modPxH)) > 0.001) {
-        warnings.push(`Px por módulo no entero: ${modPxW.toFixed(1)} × ${modPxH.toFixed(1)} px/mód.`);
+      const rawModPxW = screen.widthPx / screen.cols;
+      const rawModPxH = screen.heightPx / screen.rows;
+
+      if (Math.abs(rawModPxW - Math.round(rawModPxW)) > 0.001 || Math.abs(rawModPxH - Math.round(rawModPxH)) > 0.001) {
+        warnings.push(`Px por módulo no enteros: ${rawModPxW.toFixed(2)} × ${rawModPxH.toFixed(2)} px.`);
       }
 
-      screen.modPxW = modPxW;
-      screen.modPxH = modPxH;
+      screen.modPxW = Math.round(rawModPxW);
+      screen.modPxH = Math.round(rawModPxH);
+
+      // Pitch real = tamaño del módulo en mm / px por módulo (Etapa 1.3)
+      const pitchRealW = (screen.moduleWidthM * 1000) / (rawModPxW || 1);
+      const pitchRealH = (screen.moduleHeightM * 1000) / (rawModPxH || 1);
+      screen.pitchReal = Number(((pitchRealW + pitchRealH) / 2).toFixed(3));
+
+      // Propiedades de tipografía y visualización por defecto si faltan
+      if (!screen.labelFontWeight) screen.labelFontWeight = "300";
+      if (!screen.labelColor) screen.labelColor = "#ffffff";
+      if (screen.labelFontSize === undefined) screen.labelFontSize = 0;
+      if (!screen.viewMode) screen.viewMode = "inherit";
+      if (screen.subgridSize === undefined) screen.subgridSize = 0;
 
       return {
         screen,
@@ -272,10 +299,40 @@
     },
 
     /**
-     * Ajusta el tamaño en metros a partir de una cantidad exacta de módulos (columnas x filas).
+     * Ingreso manual de píxeles por módulo con prioridad sobre el cálculo (Etapa 1.3).
      * @param {Object} screen 
-     * @param {number} newCols 
-     * @param {number} newRows 
+     * @param {number} manualModPxW 
+     * @param {number} manualModPxH 
+     */
+    setManualModPx(screen, manualModPxW, manualModPxH) {
+      screen.modPxW = Math.max(1, parseInt(manualModPxW, 10) || 1);
+      screen.modPxH = Math.max(1, parseInt(manualModPxH, 10) || 1);
+
+      // Actualizar resolución total a partir de los módulos
+      screen.widthPx = screen.cols * screen.modPxW;
+      screen.heightPx = screen.rows * screen.modPxH;
+
+      // Actualizar pitch real
+      const pitchRealW = (screen.moduleWidthM * 1000) / screen.modPxW;
+      const pitchRealH = (screen.moduleHeightM * 1000) / screen.modPxH;
+      screen.pitchReal = Number(((pitchRealW + pitchRealH) / 2).toFixed(3));
+
+      if (screen.fixedMode === "pitch_m") {
+        // Si metros fijos, actualiza el pitch para reflejar el pitch real
+        screen.pitch = screen.pitchReal;
+      } else if (screen.fixedMode === "pitch_px") {
+        // Si pitch fijo, actualiza los metros
+        screen.widthM = Number(((screen.widthPx * screen.pitch) / 1000).toFixed(4));
+        screen.heightM = Number(((screen.heightPx * screen.pitch) / 1000).toFixed(4));
+      } else if (screen.fixedMode === "m_px") {
+        screen.pitch = screen.pitchReal;
+      }
+
+      return this.recalculate(screen);
+    },
+
+    /**
+     * Ajusta el tamaño en metros a partir de una cantidad exacta de módulos (columnas x filas).
      */
     setModulesCount(screen, newCols, newRows) {
       screen.cols = Math.max(1, parseInt(newCols, 10) || 1);
@@ -288,13 +345,8 @@
 
 
   /* ===========================================================================
-   * 4. RENDER ENGINE (Canvas 2D en Píxeles Reales 1:1)
+   * 4. RENDER ENGINE (Canvas 2D, 1:1 Px Reales, Modos de Grilla y Etiquetas Planas)
    * ===========================================================================
-   * - Cada pantalla se dibuja en sus dimensiones reales en px.
-   * - image-rendering: pixelated; sin suavizado ni interpolación.
-   * - Damero por módulos alternando color1 y color2.
-   * - Etiqueta en texto blanco con sombra y contorno para máxima legibilidad.
-   * - Totalmente preparado para V2 (capas, formas libres, SVG).
    */
   const RenderEngine = {
     canvas: null,
@@ -305,9 +357,6 @@
       this.ctx = canvasElement.getContext("2d", { alpha: false });
     },
 
-    /**
-     * Calcula los límites totales de las pantallas para el tamaño automático del lienzo.
-     */
     computeCanvasBounds() {
       if (state.canvas.mode === "manual") {
         state.canvas.computedWidth = Math.max(200, state.canvas.manualWidth);
@@ -315,7 +364,6 @@
         return;
       }
 
-      // Modo Automático: calcula la caja envolvente de todas las pantallas
       if (state.screens.length === 0) {
         state.canvas.computedWidth = 1920;
         state.canvas.computedHeight = 1080;
@@ -331,14 +379,10 @@
         if (bottom > maxY) maxY = bottom;
       });
 
-      // Asegurar un tamaño mínimo y redondear a múltiplos
       state.canvas.computedWidth = Math.max(800, maxX);
       state.canvas.computedHeight = Math.max(600, maxY);
     },
 
-    /**
-     * Dibuja toda la escena en el Canvas.
-     */
     render() {
       if (!this.canvas || !this.ctx) return;
 
@@ -353,30 +397,29 @@
       }
 
       const ctx = this.ctx;
-      // Desactivar suavizado para 1:1 pixel perfection
       ctx.imageSmoothingEnabled = false;
 
       // 1. Fondo del lienzo
-      ctx.fillStyle = state.settings.exportBackground || "#0b0f19";
+      ctx.fillStyle = state.settings.exportBackground || "#000000";
       ctx.fillRect(0, 0, w, h);
 
-      // Si es modo manual, dibujar un marco guía sutil del área activa
+      // Marco del lienzo manual
       if (state.canvas.mode === "manual") {
-        ctx.strokeStyle = "#2e3b52";
+        ctx.strokeStyle = "#262626";
         ctx.lineWidth = 1;
         ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
       }
 
-      // 2. Dibujar cada pantalla LED (damero y etiquetas)
+      // 2. Dibujar pantallas
       state.screens.forEach(screen => {
         const isSelected = screen.id === state.selectedScreenId;
         this.renderScreen(ctx, screen, isSelected);
       });
 
-      // 3. Dibujar guías de alineación magnética si están activas
+      // 3. Guías magnéticas
       this.renderSnapGuides(ctx);
 
-      // 4. Actualizar textos HUD de dimensiones
+      // 4. Actualizar HUD
       const hudResText = document.getElementById("hud-res-text");
       if (hudResText) {
         hudResText.textContent = `${w} × ${h} px`;
@@ -384,47 +427,106 @@
     },
 
     /**
-     * Renderiza una pantalla individual como damero de módulos y etiqueta centrada.
+     * Dibuja una pantalla con soporte para "Módulos LED" o "Plantilla cuadriculada"
      */
     renderScreen(ctx, screen, isSelected) {
       const { x, y, widthPx, heightPx, cols, rows, color1, color2 } = screen;
 
       ctx.save();
 
-      // Cálculo de anchos y altos exactos de módulos por celda para evitar vacíos por redondeo
+      // Determinar modo de visualización efectivo (global o por pantalla)
+      const effectiveMode = (screen.viewMode && screen.viewMode !== "inherit") 
+        ? screen.viewMode 
+        : state.settings.viewMode;
+
+      // Determinar tamaño de subcuadrícula efectivo
+      const effectiveSubgridSize = (screen.subgridSize && screen.subgridSize > 0)
+        ? screen.subgridSize
+        : state.settings.subgridSize;
+
       const colStep = widthPx / cols;
       const rowStep = heightPx / rows;
 
-      // 1. Dibujar celdas del damero
-      for (let r = 0; r < rows; r++) {
-        const cellY = Math.floor(y + r * rowStep);
-        const nextCellY = Math.floor(y + (r + 1) * rowStep);
-        const cellH = nextCellY - cellY;
+      if (effectiveMode === "subgrid") {
+        // MODO PLANTILLA CUADRICULADA (Etapa 1.4)
+        // Cada módulo se subdivide en cuadrados iguales de tamaño configurable en px
+        const sq = Math.max(4, effectiveSubgridSize);
 
-        for (let c = 0; c < cols; c++) {
-          const cellX = Math.floor(x + c * colStep);
-          const nextCellX = Math.floor(x + (c + 1) * colStep);
-          const cellW = nextCellX - cellX;
+        for (let r = 0; r < rows; r++) {
+          const modY = Math.floor(y + r * rowStep);
+          const nextModY = Math.floor(y + (r + 1) * rowStep);
+          const modH = nextModY - modY;
 
-          // Alternar color del damero
-          ctx.fillStyle = ((r + c) % 2 === 0) ? color1 : color2;
-          ctx.fillRect(cellX, cellY, cellW, cellH);
+          for (let c = 0; c < cols; c++) {
+            const modX = Math.floor(x + c * colStep);
+            const nextModX = Math.floor(x + (c + 1) * colStep);
+            const modW = nextModX - modX;
 
-          // Líneas divisorias de módulos si está habilitado
-          if (state.settings.showModuleGrid) {
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-            ctx.lineWidth = 1;
-            ctx.strokeRect(cellX + 0.5, cellY + 0.5, cellW - 1, cellH - 1);
+            const subCols = Math.ceil(modW / sq);
+            const subRows = Math.ceil(modH / sq);
+
+            for (let sr = 0; sr < subRows; sr++) {
+              const sqY = modY + sr * sq;
+              const sqH = Math.min(sq, modY + modH - sqY);
+
+              for (let sc = 0; sc < subCols; sc++) {
+                const sqX = modX + sc * sq;
+                const sqW = Math.min(sq, modX + modW - sqX);
+
+                // Damero coherente continuo
+                const globalCol = Math.floor((sqX - x) / sq);
+                const globalRow = Math.floor((sqY - y) / sq);
+                ctx.fillStyle = ((globalCol + globalRow) % 2 === 0) ? color1 : color2;
+                ctx.fillRect(sqX, sqY, sqW, sqH);
+              }
+            }
+          }
+        }
+
+      } else {
+        // MODO MÓDULOS LED (Damero estándar por módulo)
+        for (let r = 0; r < rows; r++) {
+          const cellY = Math.floor(y + r * rowStep);
+          const nextCellY = Math.floor(y + (r + 1) * rowStep);
+          const cellH = nextCellY - cellY;
+
+          for (let c = 0; c < cols; c++) {
+            const cellX = Math.floor(x + c * colStep);
+            const nextCellX = Math.floor(x + (c + 1) * colStep);
+            const cellW = nextCellX - cellX;
+
+            ctx.fillStyle = ((r + c) % 2 === 0) ? color1 : color2;
+            ctx.fillRect(cellX, cellY, cellW, cellH);
           }
         }
       }
 
-      // 2. Borde exterior de la pantalla
+      // Línea fina de 1 px que marca el borde de cada módulo real (opcional)
+      if (state.settings.showModuleBorders) {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+        ctx.lineWidth = 1;
+
+        for (let r = 0; r < rows; r++) {
+          const modY = Math.floor(y + r * rowStep);
+          const nextModY = Math.floor(y + (r + 1) * rowStep);
+          const modH = nextModY - modY;
+
+          for (let c = 0; c < cols; c++) {
+            const modX = Math.floor(x + c * colStep);
+            const nextModX = Math.floor(x + (c + 1) * colStep);
+            const modW = nextModX - modX;
+
+            ctx.strokeRect(modX + 0.5, modY + 0.5, modW - 1, modH - 1);
+          }
+        }
+      }
+
+      // Borde exterior de la pantalla
       if (isSelected) {
-        // Marco de selección brillante (cian)
-        ctx.strokeStyle = "#38bdf8";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(x + 1.5, y + 1.5, widthPx - 3, heightPx - 3);
+        // Borde blanco sutil para selección
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
 
         // Manijas en las esquinas
         this.drawHandle(ctx, x, y);
@@ -432,13 +534,12 @@
         this.drawHandle(ctx, x, y + heightPx);
         this.drawHandle(ctx, x + widthPx, y + heightPx);
       } else {
-        // Borde neutral
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
         ctx.lineWidth = 1;
         ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
       }
 
-      // 3. Etiqueta centrada en texto blanco
+      // Etiquetas planas (Etapa 1.2)
       if (state.settings.showLabels) {
         this.renderScreenLabels(ctx, screen);
       }
@@ -447,60 +548,63 @@
     },
 
     /**
-     * Dibuja los textos de etiqueta y especificaciones técnicas centrados en la pantalla.
+     * Dibuja etiquetas totalmente planas: SIN sombra, SIN contorno, SIN resplandor.
+     * Peso 300 por defecto, color blanco, centradas en la pantalla.
      */
     renderScreenLabels(ctx, screen) {
-      const { x, y, widthPx, heightPx, label, location, pitch, cols, rows } = screen;
+      const { x, y, widthPx, heightPx, label, location, cols, rows } = screen;
       const centerX = x + widthPx / 2;
       const centerY = y + heightPx / 2;
 
-      // Tamaño de fuente escalonado según el tamaño de la pantalla
-      const baseFontSize = Math.max(14, Math.min(64, Math.floor(Math.min(widthPx, heightPx) / 6)));
-      
+      // Tamaño de fuente manual o automático
+      let fontSize = (screen.labelFontSize && screen.labelFontSize > 0)
+        ? screen.labelFontSize
+        : Math.max(14, Math.min(64, Math.floor(Math.min(widthPx, heightPx) / 6)));
+
+      const fontWeight = screen.labelFontWeight || "300";
+      const fontColor = screen.labelColor || "#ffffff";
+
+      ctx.save();
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
-      // Etiqueta principal (blanco con sombra y contorno para legibilidad en cualquier color)
-      ctx.font = `bold ${baseFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      
-      // Sombra oscura y trazo para contraste
-      ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-      ctx.shadowBlur = 8;
-      ctx.lineWidth = Math.max(3, baseFontSize / 7);
-      ctx.strokeStyle = "#000000";
-      ctx.strokeText(label, centerX, state.settings.showSublabels ? centerY - baseFontSize * 0.45 : centerY);
+      // Totalmente planas: sin sombra, sin contorno
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
 
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(label, centerX, state.settings.showSublabels ? centerY - baseFontSize * 0.45 : centerY);
+      ctx.font = `${fontWeight} ${fontSize}px ${FONT_MAIN}`;
+      ctx.fillStyle = fontColor;
 
-      // Sub-etiqueta con información técnica (resolución, pitch, módulos)
-      if (state.settings.showSublabels && heightPx >= 70 && widthPx >= 90) {
-        const subFontSize = Math.max(10, Math.floor(baseFontSize * 0.38));
-        ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-        ctx.shadowBlur = 4;
-        ctx.lineWidth = 2.5;
-        
-        const line1 = `${location} • P${pitch} mm`;
+      const showSub = state.settings.showSublabels && heightPx >= 70 && widthPx >= 90;
+      const labelY = showSub ? centerY - fontSize * 0.45 : centerY;
+
+      ctx.fillText(label, centerX, labelY);
+
+      // Sub-etiqueta técnica plana (opcional)
+      if (showSub) {
+        const subFontSize = Math.max(10, Math.floor(fontSize * 0.38));
+        ctx.font = `300 ${subFontSize}px ${FONT_MAIN}`;
+        ctx.fillStyle = fontColor;
+        ctx.globalAlpha = 0.8;
+
+        const pitchText = screen.pitchReal ? `${screen.pitchReal.toFixed(3)} mm` : `${screen.pitch} mm`;
+        const line1 = `${location} • P${pitchText}`;
         const line2 = `${widthPx}×${heightPx} px (${cols}×${rows} mod)`;
 
-        const line1Y = centerY + baseFontSize * 0.35;
-        const line2Y = line1Y + subFontSize * 1.35;
-
-        ctx.strokeStyle = "#000000";
-        ctx.strokeText(line1, centerX, line1Y);
-        ctx.strokeText(line2, centerX, line2Y);
-
-        ctx.fillStyle = "#e2e8f0";
-        ctx.fillText(line1, centerX, line1Y);
-        ctx.fillText(line2, centerX, line2Y);
+        ctx.fillText(line1, centerX, centerY + fontSize * 0.35);
+        ctx.fillText(line2, centerX, centerY + fontSize * 0.35 + subFontSize * 1.35);
       }
+
+      ctx.restore();
     },
 
     drawHandle(ctx, hx, hy) {
-      const size = 6;
-      ctx.fillStyle = "#38bdf8";
+      const size = 5;
+      ctx.fillStyle = "#ffffff";
       ctx.fillRect(hx - size / 2, hy - size / 2, size, size);
-      ctx.strokeStyle = "#000";
+      ctx.strokeStyle = "#000000";
       ctx.lineWidth = 1;
       ctx.strokeRect(hx - size / 2, hy - size / 2, size, size);
     },
@@ -509,9 +613,9 @@
       if (!state.interaction.activeSnapLines || state.interaction.activeSnapLines.length === 0) return;
 
       ctx.save();
-      ctx.strokeStyle = "#06b6d4"; // Cian brillante para alineación
+      ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
+      ctx.setLineDash([3, 3]);
 
       state.interaction.activeSnapLines.forEach(line => {
         ctx.beginPath();
@@ -561,7 +665,6 @@
       const oldZoom = state.viewport.zoom;
 
       if (centerX !== undefined && centerY !== undefined) {
-        // Zoom centrado hacia el cursor del mouse
         state.viewport.panX = centerX - (centerX - state.viewport.panX) * (clampedZoom / oldZoom);
         state.viewport.panY = centerY - (centerY - state.viewport.panY) * (clampedZoom / oldZoom);
       }
@@ -621,14 +724,12 @@
     bindEvents() {
       const ws = this.workspace;
 
-      // 1. Rueda del ratón para Zoom
       ws.addEventListener("wheel", (e) => {
         e.preventDefault();
         const delta = -Math.sign(e.deltaY);
         this.zoomBy(delta, e.clientX, e.clientY);
       }, { passive: false });
 
-      // 2. Pan (con botón central o tecla Espacio + botón izquierdo)
       let isSpacePressed = false;
       window.addEventListener("keydown", (e) => {
         if (e.code === "Space" && e.target.tagName !== "INPUT" && e.target.tagName !== "TEXTAREA") {
@@ -663,7 +764,6 @@
           this.updateTransform();
         }
 
-        // Actualizar coordenadas HUD del cursor en el canvas
         const canvasCoords = this.clientToCanvasCoords(e.clientX, e.clientY);
         const cursorEl = document.getElementById("hud-cursor-coords");
         if (cursorEl) {
@@ -697,7 +797,6 @@
     },
 
     getScreenAt(canvasX, canvasY) {
-      // Buscar de atrás hacia adelante para seleccionar la pantalla superior
       for (let i = state.screens.length - 1; i >= 0; i--) {
         const s = state.screens[i];
         if (
@@ -713,7 +812,7 @@
     },
 
     onMouseDown(e) {
-      if (e.button !== 0 || e.spaceKey) return; // Solo clic primario sin espacio
+      if (e.button !== 0 || e.spaceKey) return;
 
       const pos = ViewportEngine.clientToCanvasCoords(e.clientX, e.clientY);
       const clickedScreen = this.getScreenAt(pos.x, pos.y);
@@ -728,12 +827,10 @@
         UIController.updateActiveScreenForm();
         RenderEngine.render();
       } else {
-        // Clic en fondo vacío del canvas: deselecciona y activa panning rápido
         state.selectedScreenId = null;
         UIController.updateActiveScreenForm();
         RenderEngine.render();
 
-        // Iniciar panning por clic en fondo
         state.viewport.isPanning = true;
         state.viewport.startPanX = e.clientX - state.viewport.panX;
         state.viewport.startPanY = e.clientY - state.viewport.panY;
@@ -753,13 +850,11 @@
       let targetX = pos.x - state.interaction.dragOffsetX;
       let targetY = pos.y - state.interaction.dragOffsetY;
 
-      // Aplicar Snap Magnético si está habilitado
       state.interaction.activeSnapLines = [];
 
       if (state.settings.snapEnabled) {
-        const snapThreshold = 12; // Píxeles de tolerancia magnética
+        const snapThreshold = 10;
 
-        // 1. Snap a módulo del propio panel
         const modW = Math.round(screen.modPxW) || 50;
         const modH = Math.round(screen.modPxH) || 50;
         const nearestModX = Math.round(targetX / modW) * modW;
@@ -772,16 +867,14 @@
           targetY = nearestModY;
         }
 
-        // 2. Snap a bordes de otras pantallas (alineación magnética CAD)
         state.screens.forEach(other => {
           if (other.id === screen.id) return;
 
-          // Alineación Horizontal (X)
           const edgesX = [
-            { val: other.x, snapTo: other.x }, // Izq con Izq
-            { val: other.x + other.widthPx, snapTo: other.x + other.widthPx }, // Izq con Der
-            { val: other.x - screen.widthPx, snapTo: other.x }, // Der con Izq
-            { val: other.x + other.widthPx - screen.widthPx, snapTo: other.x + other.widthPx } // Der con Der
+            { val: other.x, snapTo: other.x },
+            { val: other.x + other.widthPx, snapTo: other.x + other.widthPx },
+            { val: other.x - screen.widthPx, snapTo: other.x },
+            { val: other.x + other.widthPx - screen.widthPx, snapTo: other.x + other.widthPx }
           ];
 
           edgesX.forEach(edge => {
@@ -791,12 +884,11 @@
             }
           });
 
-          // Alineación Vertical (Y)
           const edgesY = [
-            { val: other.y, snapTo: other.y }, // Arriba con Arriba
-            { val: other.y + other.heightPx, snapTo: other.y + other.heightPx }, // Arriba con Abajo
-            { val: other.y - screen.heightPx, snapTo: other.y }, // Abajo con Arriba
-            { val: other.y + other.heightPx - screen.heightPx, snapTo: other.y + other.heightPx } // Abajo con Abajo
+            { val: other.y, snapTo: other.y },
+            { val: other.y + other.heightPx, snapTo: other.y + other.heightPx },
+            { val: other.y - screen.heightPx, snapTo: other.y },
+            { val: other.y + other.heightPx - screen.heightPx, snapTo: other.y + other.heightPx }
           ];
 
           edgesY.forEach(edge => {
@@ -807,7 +899,6 @@
           });
         });
 
-        // 3. Snap al origen (0,0)
         if (Math.abs(targetX) < snapThreshold) {
           targetX = 0;
           state.interaction.activeSnapLines.push({ type: "vertical", val: 0 });
@@ -818,11 +909,9 @@
         }
       }
 
-      // Restringir a coordenadas no negativas para evitar desplazamientos fuera del raster
       screen.x = Math.max(0, Math.round(targetX));
       screen.y = Math.max(0, Math.round(targetY));
 
-      // Sincronizar inputs de posición X / Y en el panel
       const inputX = document.getElementById("screen-pos-x");
       const inputY = document.getElementById("screen-pos-y");
       if (inputX) inputX.value = screen.x;
@@ -845,7 +934,7 @@
 
 
   /* ===========================================================================
-   * 7. UI CONTROLLER (Formularios, Tabla Resumen, Settings y V2)
+   * 7. UI CONTROLLER (Formularios, Tabla Resumen, Settings)
    * ===========================================================================
    */
   const UIController = {
@@ -903,6 +992,45 @@
     },
 
     bindTopbarControls() {
+      // Modos de grilla globales (Etapa 1.4)
+      const globalViewModeSelect = document.getElementById("global-view-mode-select");
+      const globalSubgridConfig = document.getElementById("global-subgrid-config");
+      const globalSubgridSizeSelect = document.getElementById("global-subgrid-size-select");
+      const globalModuleBorders = document.getElementById("global-show-module-borders");
+
+      globalViewModeSelect.value = state.settings.viewMode;
+      globalSubgridSizeSelect.value = String(state.settings.subgridSize);
+      globalModuleBorders.checked = state.settings.showModuleBorders;
+
+      if (state.settings.viewMode === "subgrid") {
+        globalSubgridConfig.classList.remove("hidden");
+      } else {
+        globalSubgridConfig.classList.add("hidden");
+      }
+
+      globalViewModeSelect.addEventListener("change", (e) => {
+        state.settings.viewMode = e.target.value;
+        if (state.settings.viewMode === "subgrid") {
+          globalSubgridConfig.classList.remove("hidden");
+        } else {
+          globalSubgridConfig.classList.add("hidden");
+        }
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      globalSubgridSizeSelect.addEventListener("change", (e) => {
+        state.settings.subgridSize = parseInt(e.target.value, 10) || 32;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      globalModuleBorders.addEventListener("change", (e) => {
+        state.settings.showModuleBorders = e.target.checked;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
       // Modo de Lienzo (Auto / Manual)
       const modeSelect = document.getElementById("canvas-mode-select");
       const manualDims = document.getElementById("manual-canvas-dimensions");
@@ -974,35 +1102,19 @@
         RenderEngine.render();
       });
 
-      addBtn.addEventListener("click", () => {
-        this.addNewScreen();
-      });
-
-      dupBtn.addEventListener("click", () => {
-        this.duplicateSelectedScreen();
-      });
-
-      delBtn.addEventListener("click", () => {
-        this.deleteSelectedScreen();
-      });
+      addBtn.addEventListener("click", () => this.addNewScreen());
+      dupBtn.addEventListener("click", () => this.duplicateSelectedScreen());
+      delBtn.addEventListener("click", () => this.deleteSelectedScreen());
     },
 
     bindSettingsControls() {
-      const chkGrid = document.getElementById("opt-show-module-grid");
       const chkLabels = document.getElementById("opt-show-labels");
       const chkSublabels = document.getElementById("opt-show-sublabels");
       const selBg = document.getElementById("opt-export-bg");
 
-      chkGrid.checked = state.settings.showModuleGrid;
       chkLabels.checked = state.settings.showLabels;
       chkSublabels.checked = state.settings.showSublabels;
       selBg.value = state.settings.exportBackground;
-
-      chkGrid.addEventListener("change", (e) => {
-        state.settings.showModuleGrid = e.target.checked;
-        RenderEngine.render();
-        Persistence.saveAuto();
-      });
 
       chkLabels.addEventListener("change", (e) => {
         state.settings.showLabels = e.target.checked;
@@ -1044,7 +1156,7 @@
 
       // Restaurar layout de cruz inicial
       document.getElementById("btn-reset-layout").addEventListener("click", () => {
-        if (confirm("¿Restaurar el layout inicial de cruz desplegada? Se sobrescribirá el proyecto actual.")) {
+        if (confirm("¿Restaurar el layout inicial de cruz desplegada?")) {
           state.screens = JSON.parse(JSON.stringify(DEFAULT_INITIAL_SCREENS));
           state.screens.forEach(s => CalcEngine.recalculate(s));
           state.selectedScreenId = state.screens[0].id;
@@ -1121,7 +1233,7 @@
     },
 
     /**
-     * Renderiza el formulario de la pantalla activa.
+     * Renderiza el formulario de la pantalla activa con todos los controles de Etapa 1
      */
     updateActiveScreenForm() {
       const formContainer = document.getElementById("screen-editor-form");
@@ -1135,9 +1247,9 @@
       const screen = state.screens.find(s => s.id === state.selectedScreenId);
       if (!screen) {
         formContainer.innerHTML = `
-          <div class="editor-card" style="text-align: center; padding: 32px 16px;">
+          <div class="editor-card" style="text-align: center; padding: 24px 16px;">
             <p style="color: var(--text-muted); margin-bottom: 12px;">No hay pantallas seleccionadas o el lienzo está vacío.</p>
-            <button id="btn-add-screen-empty" class="btn btn-primary btn-sm">➕ Agregar Pantalla</button>
+            <button id="btn-add-screen-empty" class="btn btn-secondary btn-sm">Agregar Pantalla</button>
           </div>
         `;
         const addEmptyBtn = document.getElementById("btn-add-screen-empty");
@@ -1147,10 +1259,8 @@
         return;
       }
 
-      // Ejecutar motor de cálculo y obtener advertencias
       const { warnings, isExact } = CalcEngine.recalculate(screen);
 
-      // Opciones del selector de ubicación
       const locationOptions = state.locations
         .map(loc => `<option value="${loc}" ${screen.location === loc ? "selected" : ""}>${loc}</option>`)
         .join("");
@@ -1177,6 +1287,39 @@
           </div>
         </div>
 
+        <!-- Tipografía de Etiqueta (Etapa 1.2: plana, peso, tamaño y color) -->
+        <div class="editor-card">
+          <div class="editor-card-title">
+            <span>Etiqueta en Lienzo (Plana)</span>
+          </div>
+          <div class="form-grid-3">
+            <div class="form-group">
+              <label for="screen-label-size">
+                <span>Tamaño</span>
+                <span class="label-unit">px (0=auto)</span>
+              </label>
+              <input type="number" id="screen-label-size" class="form-input" min="0" max="256" step="1" value="${screen.labelFontSize || 0}">
+            </div>
+            <div class="form-group">
+              <label for="screen-label-weight">Peso</label>
+              <select id="screen-label-weight" class="form-select">
+                <option value="200" ${screen.labelFontWeight === "200" ? "selected" : ""}>200 Fino</option>
+                <option value="300" ${screen.labelFontWeight === "300" || !screen.labelFontWeight ? "selected" : ""}>300 Ligero (Defecto)</option>
+                <option value="400" ${screen.labelFontWeight === "400" ? "selected" : ""}>400 Regular</option>
+                <option value="500" ${screen.labelFontWeight === "500" ? "selected" : ""}>500 Medio</option>
+                <option value="600" ${screen.labelFontWeight === "600" ? "selected" : ""}>600 Seminegrita</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Color</label>
+              <div class="color-picker-pair">
+                <input type="color" id="screen-label-color-picker" class="color-input-native" value="${screen.labelColor || '#ffffff'}">
+                <input type="text" id="screen-label-color-hex" class="color-input-hex" value="${screen.labelColor || '#ffffff'}" maxlength="7">
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Modo de Cálculo Fijo -->
         <div class="editor-card fixed-mode-box">
           <div class="form-group">
@@ -1191,18 +1334,27 @@
           </div>
         </div>
 
-        <!-- Variables Principales: Pitch, Metros y Píxeles -->
+        <!-- Variables Principales: Pitch Nominal y Real, Metros y Píxeles -->
         <div class="editor-card">
           <div class="editor-card-title">
             <span>Dimensiones & Resolución</span>
           </div>
 
-          <div class="form-group">
-            <label for="screen-pitch">
-              <span>Pixel Pitch</span>
-              <span class="label-unit">mm</span>
-            </label>
-            <input type="number" id="screen-pitch" class="form-input" step="0.01" min="0.1" value="${screen.pitch}" ${screen.fixedMode === "m_px" ? "readonly" : ""}>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="screen-pitch">
+                <span>Pitch Nominal</span>
+                <span class="label-unit">mm</span>
+              </label>
+              <input type="number" id="screen-pitch" class="form-input" step="0.001" min="0.1" value="${screen.pitch}" ${screen.fixedMode === "m_px" ? "readonly" : ""}>
+            </div>
+            <div class="form-group">
+              <label>
+                <span>Pitch Real Calculado</span>
+                <span class="label-unit">mm (mód/px)</span>
+              </label>
+              <input type="text" id="screen-pitch-real" class="form-input" value="${screen.pitchReal ? screen.pitchReal.toFixed(3) : screen.pitch.toFixed(3)} mm" readonly>
+            </div>
           </div>
 
           <div class="form-grid-2">
@@ -1211,50 +1363,49 @@
                 <span>Ancho</span>
                 <span class="label-unit">metros</span>
               </label>
-              <input type="number" id="screen-width-m" class="form-input" step="0.01" min="0.01" value="${screen.widthM}" ${screen.fixedMode === "pitch_px" ? "readonly" : ""}>
+              <input type="number" id="screen-width-m" class="form-input" step="0.001" min="0.01" value="${screen.widthM}" ${screen.fixedMode === "pitch_px" ? "readonly" : ""}>
             </div>
             <div class="form-group">
               <label for="screen-height-m">
                 <span>Alto</span>
                 <span class="label-unit">metros</span>
               </label>
-              <input type="number" id="screen-height-m" class="form-input" step="0.01" min="0.01" value="${screen.heightM}" ${screen.fixedMode === "pitch_px" ? "readonly" : ""}>
+              <input type="number" id="screen-height-m" class="form-input" step="0.001" min="0.01" value="${screen.heightM}" ${screen.fixedMode === "pitch_px" ? "readonly" : ""}>
             </div>
           </div>
 
           <div class="form-grid-2">
             <div class="form-group">
               <label for="screen-width-px">
-                <span>Ancho</span>
-                <span class="label-unit">píxeles (enteros)</span>
+                <span>Ancho Total</span>
+                <span class="label-unit">píxeles enteros</span>
               </label>
               <input type="number" id="screen-width-px" class="form-input" step="1" min="1" value="${screen.widthPx}" ${screen.fixedMode === "pitch_m" ? "readonly" : ""}>
             </div>
             <div class="form-group">
               <label for="screen-height-px">
-                <span>Alto</span>
-                <span class="label-unit">píxeles (enteros)</span>
+                <span>Alto Total</span>
+                <span class="label-unit">píxeles enteros</span>
               </label>
               <input type="number" id="screen-height-px" class="form-input" step="1" min="1" value="${screen.heightPx}" ${screen.fixedMode === "pitch_m" ? "readonly" : ""}>
             </div>
           </div>
 
-          <!-- Alerta de cálculo y estado de exactitud -->
+          <!-- Alerta de cálculo sobria: SOLO si los px no dan entero o módulos no coinciden -->
           <div id="calc-alert-box" class="calc-alert ${isExact ? "exact" : "warning"}">
-            <span class="calc-alert-icon">${isExact ? "✓" : "⚠️"}</span>
             <div id="calc-alert-text">
               ${isExact 
-                ? "<strong>Cálculo exacto:</strong> Píxeles enteros y coincide con módulos." 
-                : `<strong>Avisos:</strong><br>${warnings.join("<br>")}`
+                ? "Cálculo exacto: píxeles enteros y coincide con módulos." 
+                : `${warnings.join("<br>")}`
               }
             </div>
           </div>
         </div>
 
-        <!-- Módulos y Damero -->
+        <!-- Módulos de Gabinete y Px por Módulo con Prioridad Manual (Etapa 1.3) -->
         <div class="editor-card">
           <div class="editor-card-title">
-            <span>Módulos de Gabinete (Cols × Filas)</span>
+            <span>Módulos de Gabinete</span>
           </div>
 
           <div class="form-grid-2">
@@ -1285,9 +1436,54 @@
             </div>
           </div>
 
-          <button id="btn-sync-modules" class="btn btn-secondary btn-sm" title="Ajustar metros para que coincidan exactamente con la cantidad de módulos">
-            <span>📐</span> Ajustar tamaño a estos módulos
+          <!-- Px por módulo manuales con prioridad -->
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="screen-mod-px-w">
+                <span>Px / Módulo (W)</span>
+                <span class="label-unit">prioridad manual</span>
+              </label>
+              <input type="number" id="screen-mod-px-w" class="form-input" step="1" min="1" value="${screen.modPxW}">
+            </div>
+            <div class="form-group">
+              <label for="screen-mod-px-h">
+                <span>Px / Módulo (H)</span>
+                <span class="label-unit">prioridad manual</span>
+              </label>
+              <input type="number" id="screen-mod-px-h" class="form-input" step="1" min="1" value="${screen.modPxH}">
+            </div>
+          </div>
+
+          <button id="btn-sync-modules" class="btn btn-secondary btn-sm" title="Ajustar metros para que coincidan con los módulos">
+            Ajustar tamaño a estos módulos
           </button>
+        </div>
+
+        <!-- Modo de Visualización por Pantalla (Etapa 1.4) -->
+        <div class="editor-card">
+          <div class="editor-card-title">
+            <span>Modo de Visualización</span>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="screen-view-mode">Modo de grilla</label>
+              <select id="screen-view-mode" class="form-select">
+                <option value="inherit" ${screen.viewMode === "inherit" || !screen.viewMode ? "selected" : ""}>Heredar global</option>
+                <option value="modules" ${screen.viewMode === "modules" ? "selected" : ""}>Módulos LED</option>
+                <option value="subgrid" ${screen.viewMode === "subgrid" ? "selected" : ""}>Plantilla cuadriculada</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="screen-subgrid-size">Cuadrícula (px)</label>
+              <select id="screen-subgrid-size" class="form-select">
+                <option value="0" ${!screen.subgridSize ? "selected" : ""}>Heredar global</option>
+                <option value="16" ${screen.subgridSize === 16 ? "selected" : ""}>16 px</option>
+                <option value="32" ${screen.subgridSize === 32 ? "selected" : ""}>32 px</option>
+                <option value="64" ${screen.subgridSize === 64 ? "selected" : ""}>64 px</option>
+                <option value="128" ${screen.subgridSize === 128 ? "selected" : ""}>128 px</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <!-- Colores del Damero -->
@@ -1313,64 +1509,60 @@
           </div>
         </div>
 
-        <!-- Posicionamiento en Lienzo (X, Y en px) -->
+        <!-- Posición en Lienzo -->
         <div class="editor-card">
           <div class="editor-card-title">
-            <span>Posición en Lienzo</span>
-            <span class="label-unit">píxeles reales</span>
+            <span>Posición en Lienzo (px)</span>
           </div>
           <div class="form-grid-2">
             <div class="form-group">
-              <label for="screen-pos-x">Posición X</label>
+              <label for="screen-pos-x">X</label>
               <input type="number" id="screen-pos-x" class="form-input" step="1" value="${screen.x}">
             </div>
             <div class="form-group">
-              <label for="screen-pos-y">Posición Y</label>
+              <label for="screen-pos-y">Y</label>
               <input type="number" id="screen-pos-y" class="form-input" step="1" value="${screen.y}">
             </div>
           </div>
         </div>
       `;
 
-      // Eventos del formulario para sincronización en tiempo real sin perder foco
       this.attachFormEvents(screen);
     },
 
-    /**
-     * Sincroniza dinámicamente los campos dependientes sin recrear el DOM,
-     * garantizando que el usuario nunca pierda el foco ni la posición del cursor mientras escribe.
-     */
     syncFormValues(screen) {
       const getEl = id => document.getElementById(id);
       const { warnings, isExact } = CalcEngine.recalculate(screen);
 
       const pitchEl = getEl("screen-pitch");
+      const pitchRealEl = getEl("screen-pitch-real");
       const wmEl = getEl("screen-width-m");
       const hmEl = getEl("screen-height-m");
       const wpxEl = getEl("screen-width-px");
       const hpxEl = getEl("screen-height-px");
       const colsEl = getEl("screen-cols");
       const rowsEl = getEl("screen-rows");
+      const modPxWEl = getEl("screen-mod-px-w");
+      const modPxHEl = getEl("screen-mod-px-h");
       const alertBox = getEl("calc-alert-box");
       const alertText = getEl("calc-alert-text");
 
-      // Actualizar solo los campos que no tienen foco actualmente
       if (pitchEl && document.activeElement !== pitchEl) pitchEl.value = screen.pitch;
+      if (pitchRealEl) pitchRealEl.value = `${screen.pitchReal ? screen.pitchReal.toFixed(3) : screen.pitch.toFixed(3)} mm`;
       if (wmEl && document.activeElement !== wmEl) wmEl.value = screen.widthM;
       if (hmEl && document.activeElement !== hmEl) hmEl.value = screen.heightM;
       if (wpxEl && document.activeElement !== wpxEl) wpxEl.value = screen.widthPx;
       if (hpxEl && document.activeElement !== hpxEl) hpxEl.value = screen.heightPx;
       if (colsEl && document.activeElement !== colsEl) colsEl.value = screen.cols;
       if (rowsEl && document.activeElement !== rowsEl) rowsEl.value = screen.rows;
+      if (modPxWEl && document.activeElement !== modPxWEl) modPxWEl.value = screen.modPxW;
+      if (modPxHEl && document.activeElement !== modPxHEl) modPxHEl.value = screen.modPxH;
 
-      // Actualizar caja de alerta
       if (alertBox && alertText) {
         alertBox.className = `calc-alert ${isExact ? "exact" : "warning"}`;
-        const iconSpan = alertBox.querySelector(".calc-alert-icon");
-        if (iconSpan) iconSpan.textContent = isExact ? "✓" : "⚠️";
         alertText.innerHTML = isExact 
-          ? "<strong>Cálculo exacto:</strong> Píxeles enteros y coincide con módulos." 
-          : `<strong>Avisos:</strong><br>${warnings.join("<br>")}`;
+          ? "Cálculo exacto: píxeles enteros y coincide con módulos." 
+          : `${warnings.join("<br>")}`;
       }
 
       this.updateScreensSelector();
@@ -1382,7 +1574,7 @@
     attachFormEvents(screen) {
       const getEl = id => document.getElementById(id);
 
-      // 1. Etiqueta
+      // Etiqueta
       getEl("screen-label").addEventListener("input", (e) => {
         screen.label = e.target.value;
         this.updateScreensSelector();
@@ -1391,10 +1583,10 @@
         Persistence.saveAuto();
       });
 
-      // 2. Ubicación
+      // Ubicación
       getEl("screen-location").addEventListener("change", (e) => {
         if (e.target.value === "__custom__") {
-          const newLoc = prompt("Ingresa el nombre de la nueva ubicación (ej: Tótem, Pasarela, Torre):");
+          const newLoc = prompt("Nombre de la nueva ubicación:");
           if (newLoc && newLoc.trim()) {
             const trimmed = newLoc.trim();
             if (!state.locations.includes(trimmed)) {
@@ -1413,7 +1605,40 @@
         Persistence.saveAuto();
       });
 
-      // 3. Dato Fijo (fixedMode)
+      // Tipografía de etiqueta (Etapa 1.2)
+      getEl("screen-label-size").addEventListener("input", (e) => {
+        screen.labelFontSize = Math.max(0, parseInt(e.target.value, 10) || 0);
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      getEl("screen-label-weight").addEventListener("change", (e) => {
+        screen.labelFontWeight = e.target.value;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      const labelColorPicker = getEl("screen-label-color-picker");
+      const labelColorHex = getEl("screen-label-color-hex");
+
+      labelColorPicker.addEventListener("input", (e) => {
+        screen.labelColor = e.target.value;
+        labelColorHex.value = e.target.value;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      labelColorHex.addEventListener("change", (e) => {
+        const val = e.target.value.trim();
+        if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+          screen.labelColor = val;
+          labelColorPicker.value = val;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        }
+      });
+
+      // Dato Fijo
       getEl("screen-fixed-mode").addEventListener("change", (e) => {
         screen.fixedMode = e.target.value;
         this.updateActiveScreenForm();
@@ -1422,13 +1647,13 @@
         Persistence.saveAuto();
       });
 
-      // 4. Pitch
+      // Pitch Nominal
       getEl("screen-pitch").addEventListener("input", (e) => {
         screen.pitch = parseFloat(e.target.value) || 2.5;
         this.syncFormValues(screen);
       });
 
-      // 5. Metros W y H
+      // Metros W y H
       getEl("screen-width-m").addEventListener("input", (e) => {
         screen.widthM = parseFloat(e.target.value) || 1.0;
         this.syncFormValues(screen);
@@ -1439,7 +1664,7 @@
         this.syncFormValues(screen);
       });
 
-      // 6. Píxeles W y H
+      // Píxeles W y H
       getEl("screen-width-px").addEventListener("input", (e) => {
         screen.widthPx = parseInt(e.target.value, 10) || 100;
         this.syncFormValues(screen);
@@ -1450,7 +1675,7 @@
         this.syncFormValues(screen);
       });
 
-      // 7. Tamaño de módulo (ancho y alto de gabinete)
+      // Tamaño de módulo (ancho y alto de gabinete)
       getEl("screen-mod-w").addEventListener("input", (e) => {
         screen.moduleWidthM = parseFloat(e.target.value) || 0.50;
         this.syncFormValues(screen);
@@ -1461,7 +1686,7 @@
         this.syncFormValues(screen);
       });
 
-      // 8. Cantidad de módulos (columnas y filas)
+      // Columnas y Filas
       const btnSync = getEl("btn-sync-modules");
       const handleSyncModules = () => {
         const c = parseInt(getEl("screen-cols").value, 10) || 1;
@@ -1474,7 +1699,31 @@
       getEl("screen-cols").addEventListener("change", handleSyncModules);
       getEl("screen-rows").addEventListener("change", handleSyncModules);
 
-      // 9. Colores Damero (Pickers y Hex)
+      // Px por Módulo con Prioridad Manual (Etapa 1.3)
+      const handleManualModPx = () => {
+        const pw = parseInt(getEl("screen-mod-px-w").value, 10) || screen.modPxW;
+        const ph = parseInt(getEl("screen-mod-px-h").value, 10) || screen.modPxH;
+        CalcEngine.setManualModPx(screen, pw, ph);
+        this.syncFormValues(screen);
+      };
+
+      getEl("screen-mod-px-w").addEventListener("change", handleManualModPx);
+      getEl("screen-mod-px-h").addEventListener("change", handleManualModPx);
+
+      // Modo de visualización por pantalla (Etapa 1.4)
+      getEl("screen-view-mode").addEventListener("change", (e) => {
+        screen.viewMode = e.target.value;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      getEl("screen-subgrid-size").addEventListener("change", (e) => {
+        screen.subgridSize = parseInt(e.target.value, 10) || 0;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      // Colores Damero
       const col1Picker = getEl("screen-color1-picker");
       const col1Hex = getEl("screen-color1-hex");
       const col2Picker = getEl("screen-color2-picker");
@@ -1514,7 +1763,7 @@
         }
       });
 
-      // 10. Posición X e Y manual
+      // Posición X e Y manual
       getEl("screen-pos-x").addEventListener("input", (e) => {
         screen.x = Math.max(0, parseInt(e.target.value, 10) || 0);
         RenderEngine.render();
@@ -1529,7 +1778,7 @@
     },
 
     /**
-     * Actualiza la tabla resumen con módulos, px/mód, resolución y metros por pantalla.
+     * Tabla resumen con Pitch Real con 3 decimales (Etapa 1.3)
      */
     updateSummaryTable() {
       const tbody = document.getElementById("summary-table-body");
@@ -1556,20 +1805,24 @@
         const row = document.createElement("tr");
         row.style.cursor = "pointer";
         if (screen.id === state.selectedScreenId) {
-          row.style.background = "rgba(59, 130, 246, 0.12)";
+          row.style.background = "#1a1a1a";
         }
+
+        const pitchNom = `${screen.pitch.toFixed(2)} mm`;
+        const pitchReal = screen.pitchReal ? `${screen.pitchReal.toFixed(3)} mm` : `${screen.pitch.toFixed(3)} mm`;
 
         row.innerHTML = `
           <td><span class="tag-label">${screen.label}</span></td>
           <td>${screen.location}</td>
-          <td>${screen.pitch} mm</td>
-          <td>${screen.cols} × ${screen.rows} (${modCount} mod)</td>
+          <td>${pitchNom}</td>
+          <td><strong>${pitchReal}</strong></td>
+          <td>${screen.cols} × ${screen.rows} (${modCount})</td>
           <td>${Math.round(screen.modPxW)} × ${Math.round(screen.modPxH)} px</td>
-          <td><strong>${screen.widthPx} × ${screen.heightPx}</strong> px</td>
+          <td>${screen.widthPx} × ${screen.heightPx} px</td>
           <td>${screen.widthM.toFixed(2)} × ${screen.heightM.toFixed(2)} m</td>
           <td>
             <span class="status-badge ${isExact ? "exact" : "warning"}" title="${warnings.join(" | ")}">
-              ${isExact ? "✓ Exacto" : "⚠️ Redondeo"}
+              ${isExact ? "Exacto" : "Aviso"}
             </span>
           </td>
         `;
@@ -1593,7 +1846,7 @@
           </div>
           <div class="total-stat">
             <span class="total-stat-val">${totalModules}</span>
-            <span class="total-stat-lbl">Módulos Totales</span>
+            <span class="total-stat-lbl">Módulos</span>
           </div>
           <div class="total-stat">
             <span class="total-stat-val">${(totalPixels / 1000000).toFixed(2)} M</span>
@@ -1601,7 +1854,7 @@
           </div>
           <div class="total-stat">
             <span class="total-stat-val">${totalAreaM2.toFixed(2)} m²</span>
-            <span class="total-stat-lbl">Área Total</span>
+            <span class="total-stat-lbl">Superficie Total</span>
           </div>
         `;
       }
@@ -1612,7 +1865,6 @@
       const newId = `screen_${Date.now()}`;
       const newLabel = `P${state.screens.length + 1}`;
 
-      // Posicionar cerca del centro visible o con offset
       let newX = 100;
       let newY = 100;
       if (state.screens.length > 0) {
@@ -1626,6 +1878,7 @@
         label: newLabel,
         location: state.locations[0] || "Central",
         pitch: 2.5,
+        pitchReal: 2.500,
         widthM: 2.00,
         heightM: 1.00,
         widthPx: 800,
@@ -1634,11 +1887,18 @@
         moduleHeightM: 1.00,
         cols: 4,
         rows: 1,
+        modPxW: 200,
+        modPxH: 400,
         fixedMode: "pitch_m",
         color1: palette.c1,
         color2: palette.c2,
         x: newX,
-        y: newY
+        y: newY,
+        labelColor: "#ffffff",
+        labelFontWeight: "300",
+        labelFontSize: 0,
+        viewMode: "inherit",
+        subgridSize: 0
       };
 
       CalcEngine.recalculate(newScreen);
@@ -1704,17 +1964,8 @@
     },
 
     bindButtons() {
-      // Exportar PNG
-      document.getElementById("btn-export-png").addEventListener("click", () => {
-        this.exportPNG();
-      });
-
-      // Guardar JSON
-      document.getElementById("btn-save-json").addEventListener("click", () => {
-        this.exportJSON();
-      });
-
-      // Cargar JSON
+      document.getElementById("btn-export-png").addEventListener("click", () => this.exportPNG());
+      document.getElementById("btn-save-json").addEventListener("click", () => this.exportJSON());
       document.getElementById("input-load-json").addEventListener("change", (e) => {
         this.importJSON(e.target.files[0]);
         e.target.value = "";
@@ -1726,23 +1977,19 @@
       const w = state.canvas.computedWidth;
       const h = state.canvas.computedHeight;
 
-      // Crear canvas offscreen de alta fidelidad sin escalar
       const offscreen = document.createElement("canvas");
       offscreen.width = w;
       offscreen.height = h;
       const oCtx = offscreen.getContext("2d", { alpha: false });
       oCtx.imageSmoothingEnabled = false;
 
-      // Fondo
-      oCtx.fillStyle = state.settings.exportBackground || "#0b0f19";
+      oCtx.fillStyle = state.settings.exportBackground || "#000000";
       oCtx.fillRect(0, 0, w, h);
 
-      // Dibujar pantallas
       state.screens.forEach(screen => {
         RenderEngine.renderScreen(oCtx, screen, false);
       });
 
-      // Generar descarga de imagen
       offscreen.toBlob((blob) => {
         if (!blob) return;
         const url = URL.createObjectURL(blob);
@@ -1758,7 +2005,7 @@
 
     exportJSON() {
       const projectData = {
-        version: "1.0",
+        version: "1.1",
         appName: "LED Grid Mapper",
         timestamp: new Date().toISOString(),
         canvas: state.canvas,
@@ -1803,12 +2050,12 @@
             ViewportEngine.zoomToFit();
             this.saveAuto();
 
-            alert("¡Proyecto cargado exitosamente!");
+            alert("Proyecto cargado exitosamente.");
           } else {
-            alert("El archivo JSON no tiene un formato válido de proyecto.");
+            alert("El archivo JSON no tiene un formato válido.");
           }
         } catch (err) {
-          alert(`Error al leer el archivo JSON: ${err.message}`);
+          alert(`Error al leer archivo JSON: ${err.message}`);
         }
       };
       reader.readAsText(file);
@@ -1819,7 +2066,7 @@
       this.saveTimeout = setTimeout(() => {
         try {
           const projectData = {
-            version: "1.0",
+            version: "1.1",
             timestamp: new Date().toISOString(),
             canvas: state.canvas,
             settings: state.settings,
@@ -1830,10 +2077,10 @@
           
           const statusEl = document.getElementById("autosave-status");
           if (statusEl) {
-            statusEl.textContent = `✓ Guardado automático: ${new Date().toLocaleTimeString()}`;
+            statusEl.textContent = `Guardado: ${new Date().toLocaleTimeString()}`;
           }
         } catch (e) {
-          console.warn("No se pudo autoguardar en localStorage:", e);
+          console.warn("No se pudo autoguardar:", e);
         }
       }, 400);
     },
@@ -1853,10 +2100,9 @@
           }
         }
       } catch (e) {
-        console.warn("Error leyendo localStorage, cargando layout inicial por defecto:", e);
+        console.warn("Error leyendo localStorage, cargando layout inicial:", e);
       }
 
-      // Si no hay datos guardados, cargar layout de cruz desplegada por defecto
       state.screens = JSON.parse(JSON.stringify(DEFAULT_INITIAL_SCREENS));
       state.screens.forEach(s => CalcEngine.recalculate(s));
     }
@@ -1872,20 +2118,17 @@
     const workspaceEl = document.getElementById("canvas-workspace");
     const stageEl = document.getElementById("canvas-stage");
 
-    // Inicializar subsistemas
     RenderEngine.init(canvasEl);
     ViewportEngine.init(workspaceEl, stageEl);
     InteractionEngine.init();
     Persistence.init();
     UIController.init();
 
-    // Renderizar grilla inicial y ajustar vista al lienzo
     RenderEngine.render();
     setTimeout(() => {
       ViewportEngine.zoomToFit();
     }, 120);
 
-    // Reajustar vista al redimensionar ventana
     window.addEventListener("resize", () => {
       RenderEngine.render();
     });

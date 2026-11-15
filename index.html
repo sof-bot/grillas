@@ -3,66 +3,34 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LED Grid Mapper - Generador de Grillas de Mapping LED</title>
-  <meta name="description" content="Generador de grillas de mapping para pantallas LED en píxeles reales 1:1. Cálculo bidireccional de pitch, metros y píxeles, damero por módulos y exportación PNG/JSON.">
+  <title>LED Grid Mapper</title>
+  <meta name="description" content="Generador de grillas de mapping para pantallas LED en píxeles reales 1:1.">
+  
+  <!-- Tipografía Inter desde Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap" rel="stylesheet">
+  
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="dark-theme">
 
   <!-- =========================================================================
-       1. PORTADA / LANDING MODAL (Inicio y Descripción)
+       1. PORTADA SOBRIA Y MINIMALISTA
        ========================================================================= -->
   <div id="landing-screen" class="landing-overlay">
     <div class="landing-card">
       <div class="landing-header">
-        <div class="landing-badge">PROTOTIPO FUNCIONAL V1</div>
         <h1 class="landing-title">LED Grid Mapper</h1>
         <p class="landing-subtitle">Generador de grillas de mapping para pantallas LED en píxeles reales 1:1</p>
       </div>
 
       <div class="landing-description">
-        <p>Herramienta técnica para ingenieros de video, VJs, técnicos de pantallas y diseñadores de mapping. Diseña configuraciones de pantallas LED, calcula de forma bidireccional el pitch, metros y resolución en píxeles reales, visualiza el damero por módulos y exporta la grilla para tu procesador (Novastar, Brompton, etc.).</p>
-      </div>
-
-      <div class="landing-features">
-        <div class="feature-item">
-          <span class="feature-icon">📐</span>
-          <div>
-            <strong>Cálculo Bidireccional</strong>
-            <p>Pitch, metros y píxeles vinculados. Elige qué dato fijar y detecta avisos de redondeo.</p>
-          </div>
-        </div>
-        <div class="feature-item">
-          <span class="feature-icon">🎯</span>
-          <div>
-            <strong>Píxeles 1:1 Reales</strong>
-            <p>1 px de grilla = 1 px físico del LED, sin deformación ni suavizado (pixelated rendering).</p>
-          </div>
-        </div>
-        <div class="feature-item">
-          <span class="feature-icon">🏁</span>
-          <div>
-            <strong>Damero por Módulo</strong>
-            <p>Visualización módulo por módulo con colores independientes por pantalla y etiquetas legibles.</p>
-          </div>
-        </div>
-        <div class="feature-item">
-          <span class="feature-icon">💾</span>
-          <div>
-            <strong>Exportación PNG & JSON</strong>
-            <p>Descarga la grilla en resolución nativa, guarda/carga tus proyectos y autoguardado continuo.</p>
-          </div>
-        </div>
+        <p>Herramienta técnica para cálculo bidireccional de pitch, dimensiones físicas y resolución en píxeles. Diseña distribuciones de gabinetes, visualiza dameros y plantillas cuadriculadas con renderizado exacto sin interpolación.</p>
       </div>
 
       <div class="landing-actions">
-        <button id="btn-enter-app" class="btn btn-primary btn-large">
-          <span class="btn-icon">⚡</span> Abrir generador
-        </button>
-      </div>
-
-      <div class="landing-footer-note">
-        <span>Publicable de forma estática en GitHub Pages • Sin dependencias ni frameworks</span>
+        <button id="btn-enter-app" class="btn btn-primary btn-large">Abrir generador</button>
       </div>
     </div>
   </div>
@@ -73,23 +41,51 @@
        ========================================================================= -->
   <div id="app-workspace" class="app-container">
 
-    <!-- BARRA SUPERIOR (Top Bar) -->
+    <!-- BARRA SUPERIOR -->
     <header class="top-nav">
       <div class="nav-left">
         <button id="btn-show-landing" class="btn-text brand-title" title="Ver portada e información">
-          <span class="brand-icon">▦</span>
           <span class="brand-name">LED Grid Mapper</span>
           <span class="brand-version">v1.0</span>
         </button>
       </div>
 
       <div class="nav-center">
-        <!-- Canvas Size Selector & Controls -->
+        <!-- Modo de visualización global -->
+        <div class="nav-control-group">
+          <label for="global-view-mode-select">Modo de grilla:</label>
+          <select id="global-view-mode-select" class="form-select-sm">
+            <option value="modules">Módulos LED</option>
+            <option value="subgrid">Plantilla cuadriculada</option>
+          </select>
+        </div>
+
+        <div id="global-subgrid-config" class="nav-control-group hidden">
+          <label for="global-subgrid-size-select">Cuadrícula:</label>
+          <select id="global-subgrid-size-select" class="form-select-sm">
+            <option value="16">16 px</option>
+            <option value="32" selected>32 px</option>
+            <option value="64">64 px</option>
+            <option value="128">128 px</option>
+          </select>
+        </div>
+
+        <div class="nav-control-group">
+          <label class="toggle-checkbox" title="Mostrar línea de 1 px que marca el borde del módulo real">
+            <input type="checkbox" id="global-show-module-borders" checked>
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">Bordes de módulo</span>
+          </label>
+        </div>
+
+        <div class="nav-divider"></div>
+
+        <!-- Dimensiones del lienzo -->
         <div class="nav-control-group">
           <label for="canvas-mode-select">Lienzo:</label>
           <select id="canvas-mode-select" class="form-select-sm">
-            <option value="auto">Automático (Ajustado)</option>
-            <option value="manual">Manual (Procesador)</option>
+            <option value="auto">Automático</option>
+            <option value="manual">Manual</option>
           </select>
         </div>
 
@@ -97,7 +93,7 @@
           <input type="number" id="canvas-width-input" class="form-input-sm" min="100" max="16384" step="1" title="Ancho de lienzo en px" placeholder="W (px)">
           <span class="dim-divider">×</span>
           <input type="number" id="canvas-height-input" class="form-input-sm" min="100" max="16384" step="1" title="Alto de lienzo en px" placeholder="H (px)">
-          <select id="canvas-presets-select" class="form-select-sm" title="Presets comunes de procesadores">
+          <select id="canvas-presets-select" class="form-select-sm" title="Presets comunes">
             <option value="">Presets...</option>
             <option value="1920x1080">1920 × 1080 (FHD)</option>
             <option value="3840x2160">3840 × 2160 (4K UHD)</option>
@@ -109,7 +105,7 @@
         </div>
 
         <div class="nav-control-group snap-toggle-group">
-          <label class="toggle-checkbox" title="Alinear pantallas a módulos y bordes adyacentes">
+          <label class="toggle-checkbox" title="Alinear pantallas a módulos y bordes">
             <input type="checkbox" id="snap-enabled" checked>
             <span class="toggle-switch"></span>
             <span class="toggle-label">Snap magnético</span>
@@ -118,32 +114,27 @@
       </div>
 
       <div class="nav-right">
-        <!-- Quick Project Actions -->
         <div class="btn-group">
-          <button id="btn-save-json" class="btn btn-secondary btn-sm" title="Guardar proyecto como JSON">
-            <span>💾</span> Guardar JSON
-          </button>
+          <button id="btn-save-json" class="btn btn-secondary btn-sm" title="Guardar proyecto como JSON">Guardar JSON</button>
           <label class="btn btn-secondary btn-sm btn-file-label" title="Cargar proyecto desde JSON">
-            <span>📂</span> Cargar JSON
+            Cargar JSON
             <input type="file" id="input-load-json" accept=".json" class="hidden-file-input">
           </label>
-          <button id="btn-export-png" class="btn btn-accent btn-sm" title="Exportar grilla completa en PNG a resolución exacta">
-            <span>🖼️</span> Exportar PNG
-          </button>
+          <button id="btn-export-png" class="btn btn-primary btn-sm" title="Exportar grilla completa en PNG a resolución exacta">Exportar PNG</button>
         </div>
       </div>
     </header>
 
 
-    <!-- CONTENIDO PRINCIPAL: PANEL IZQUIERDO Y LIENZO DERECHO -->
+    <!-- CONTENIDO PRINCIPAL -->
     <main class="main-layout">
 
       <!-- ===================================================================
-           PANEL DE CONTROL (Sidebar Izquierdo)
+           PANEL DE CONTROL (Izquierda)
            =================================================================== -->
       <aside class="sidebar-panel">
 
-        <!-- Tabs de Navegación del Panel -->
+        <!-- Tabs de Navegación -->
         <div class="sidebar-tabs">
           <button class="tab-btn active" data-tab="tab-screens">
             <span>Pantallas</span>
@@ -153,11 +144,11 @@
             <span>Tabla Resumen</span>
           </button>
           <button class="tab-btn" data-tab="tab-settings">
-            <span>Ajustes & V2</span>
+            <span>Ajustes</span>
           </button>
         </div>
 
-        <!-- TAB 1: PANTALLAS (Lista y Edición Detallada) -->
+        <!-- TAB 1: PANTALLAS -->
         <section id="tab-screens" class="sidebar-tab-content active">
           <div class="sidebar-section-header">
             <div>
@@ -165,24 +156,18 @@
               <p class="section-desc">Cálculo bidireccional y configuración de módulos.</p>
             </div>
             <div class="sidebar-header-actions">
-              <button id="btn-add-screen" class="btn btn-primary btn-sm" title="Agregar nueva pantalla">
-                <span>➕</span> Nueva Pantalla
-              </button>
+              <button id="btn-add-screen" class="btn btn-secondary btn-sm" title="Agregar nueva pantalla">Nueva Pantalla</button>
             </div>
           </div>
 
           <!-- Selector rápido de pantalla actual -->
           <div class="screen-selector-bar">
-            <label for="active-screen-select">Seleccionada:</label>
+            <label for="active-screen-select">Selección:</label>
             <select id="active-screen-select" class="form-select">
               <!-- Opciones dinámicas -->
             </select>
-            <button id="btn-duplicate-screen" class="btn btn-secondary btn-sm" title="Duplicar pantalla seleccionada">
-              <span>📋</span> Duplicar
-            </button>
-            <button id="btn-delete-screen" class="btn btn-danger btn-sm" title="Eliminar pantalla seleccionada">
-              <span>🗑️</span>
-            </button>
+            <button id="btn-duplicate-screen" class="btn btn-secondary btn-sm" title="Duplicar pantalla seleccionada">Duplicar</button>
+            <button id="btn-delete-screen" class="btn btn-danger btn-sm" title="Eliminar pantalla seleccionada">Eliminar</button>
           </div>
 
           <!-- Formulario de la pantalla activa -->
@@ -196,7 +181,7 @@
           <div class="sidebar-section-header">
             <div>
               <h2 class="section-title">Resumen del Sistema</h2>
-              <p class="section-desc">Detalle de módulos, píxeles, dimensiones y estado de exactitud.</p>
+              <p class="section-desc">Detalle de módulos, píxeles, pitch real y tamaño en metros.</p>
             </div>
           </div>
 
@@ -206,11 +191,12 @@
                 <tr>
                   <th>Etiqueta</th>
                   <th>Ubicación</th>
-                  <th>Pitch</th>
+                  <th>Pitch nom.</th>
+                  <th>Pitch real</th>
                   <th>Módulos (C×F)</th>
                   <th>Px / Módulo</th>
-                  <th>Resolución (px)</th>
-                  <th>Tamaño (m)</th>
+                  <th>Resolución</th>
+                  <th>Tamaño</th>
                   <th>Estado</th>
                 </tr>
               </thead>
@@ -225,75 +211,56 @@
           </div>
         </section>
 
-        <!-- TAB 3: AJUSTES Y PREPARACIÓN V2 -->
+        <!-- TAB 3: AJUSTES -->
         <section id="tab-settings" class="sidebar-tab-content">
           <div class="sidebar-section-header">
             <div>
-              <h2 class="section-title">Ajustes & Opciones</h2>
-              <p class="section-desc">Configuración visual de la grilla y módulos futuros.</p>
+              <h2 class="section-title">Ajustes Generales</h2>
+              <p class="section-desc">Configuración visual de la grilla y gestión de proyecto.</p>
             </div>
           </div>
 
           <div class="settings-group">
-            <h3>Visualización de la Grilla</h3>
+            <h3>Visualización en Lienzo</h3>
             <label class="setting-row">
-              <span>Mostrar líneas de gabinete / módulo</span>
-              <input type="checkbox" id="opt-show-module-grid" checked>
-            </label>
-            <label class="setting-row">
-              <span>Mostrar etiquetas centradas en pantallas</span>
+              <span>Mostrar etiquetas en pantallas</span>
               <input type="checkbox" id="opt-show-labels" checked>
             </label>
             <label class="setting-row">
-              <span>Mostrar resolución y tamaño en pantalla</span>
+              <span>Mostrar especificaciones técnicas secundarias</span>
               <input type="checkbox" id="opt-show-sublabels" checked>
             </label>
             <label class="setting-row">
-              <span>Fondo del lienzo en exportación</span>
+              <span>Fondo de exportación</span>
               <select id="opt-export-bg" class="form-select-sm">
+                <option value="#000000" selected>Negro (#000000)</option>
+                <option value="#0b0f19">Gris oscuro (#0B0F19)</option>
                 <option value="transparent">Transparente</option>
-                <option value="#0b0f19" selected>Negro oscuro (#0B0F19)</option>
-                <option value="#000000">Negro absoluto (#000000)</option>
                 <option value="#ffffff">Blanco (#FFFFFF)</option>
               </select>
             </label>
           </div>
 
           <div class="settings-group">
-            <h3>Gestión de Ubicaciones Globales</h3>
+            <h3>Ubicaciones Globales</h3>
             <p class="small-text">Lista de ubicaciones disponibles para asignar a pantallas:</p>
             <div id="locations-tag-list" class="tag-list">
               <!-- Tags dinámicos -->
             </div>
             <div class="add-location-row">
-              <input type="text" id="input-new-location" class="form-input-sm" placeholder="Nueva ubicación (ej: Tótem, Pasarela)...">
+              <input type="text" id="input-new-location" class="form-input-sm" placeholder="Nueva ubicación...">
               <button id="btn-add-location" class="btn btn-secondary btn-sm">Agregar</button>
             </div>
           </div>
 
           <div class="settings-group">
-            <h3>Preparación Versión 2 (Próximamente)</h3>
-            <p class="small-text">La arquitectura interna de <code>LED Grid Mapper</code> separa la capa de datos del motor de renderizado. En la V2 se integrarán:</p>
-            <ul class="v2-features-list">
-              <li>🔹 Capas de texto y formas geométricas libres (círculos, cruces, diagonales).</li>
-              <li>🔹 Importación de tipografías personalizadas (TTF/WOFF2).</li>
-              <li>🔹 Exportación vectorial SVG (cada pantalla como capa/grupo individual para Adobe Illustrator).</li>
-              <li>🔹 Exportación a plano técnico en PDF multipágina con acotaciones y listas de materiales.</li>
-            </ul>
-          </div>
-
-          <div class="settings-group">
             <h3>Gestión de Proyecto</h3>
             <div class="project-actions-column">
-              <button id="btn-reset-layout" class="btn btn-secondary btn-block">
-                <span>🔄</span> Restaurar Layout de Cruz Inicial
-              </button>
-              <button id="btn-clear-project" class="btn btn-danger-outline btn-block">
-                <span>🗑️</span> Borrar Todo y Empezar en Blanco
-              </button>
+              <button id="btn-reset-layout" class="btn btn-secondary btn-block">Restaurar Layout de Cruz Inicial</button>
+              <button id="btn-clear-project" class="btn btn-danger-outline btn-block">Borrar Todo y Empezar en Blanco</button>
             </div>
             <div id="autosave-status" class="autosave-status">
-              <span>✓ Cambios guardados automáticamente en localStorage</span>
+              <span>Guardado automáticamente</span>
             </div>
           </div>
         </section>
@@ -302,11 +269,11 @@
 
 
       <!-- ===================================================================
-           LIENZO DEL MAPPING (Canvas Viewport Derecho)
+           LIENZO DEL MAPPING (Derecha)
            =================================================================== -->
       <section class="canvas-viewport" id="canvas-viewport">
 
-        <!-- Barra flotante de herramientas de navegación del lienzo -->
+        <!-- Barra flotante HUD -->
         <div class="viewport-hud-top">
           <div class="hud-pill" id="hud-canvas-info">
             Lienzo: <strong id="hud-res-text">2400 × 2400 px</strong>
@@ -319,23 +286,18 @@
         <!-- HUD flotante de Zoom -->
         <div class="viewport-hud-bottom">
           <div class="hud-controls-group">
-            <button id="btn-zoom-out" class="hud-btn" title="Alejar (o Rueda del ratón hacia abajo)">−</button>
+            <button id="btn-zoom-out" class="hud-btn" title="Alejar">−</button>
             <span id="hud-zoom-level" class="hud-text">100%</span>
-            <button id="btn-zoom-in" class="hud-btn" title="Acercar (o Rueda del ratón hacia arriba)">+</button>
-            <button id="btn-zoom-100" class="hud-btn hud-btn-text" title="Escala real 100%">1:1</button>
+            <button id="btn-zoom-in" class="hud-btn" title="Acercar">+</button>
+            <button id="btn-zoom-100" class="hud-btn hud-btn-text" title="Escala real 1:1">1:1</button>
             <button id="btn-zoom-fit" class="hud-btn hud-btn-text" title="Ajustar grilla a la ventana">Ajustar</button>
-          </div>
-          <div class="hud-hint">
-            <span>Arrastra para mover pantallas • Rueda para zoom • Barra espaciadora / Botón central para pan</span>
           </div>
         </div>
 
-        <!-- Contenedor del Canvas interactivo con soporte de Pan & Zoom -->
+        <!-- Espacio de trabajo del Canvas con Pan & Zoom -->
         <div class="canvas-workspace-scroll" id="canvas-workspace">
           <div class="canvas-stage" id="canvas-stage">
-            <!-- Lienzo principal en píxeles reales (image-rendering: pixelated) -->
             <canvas id="mapping-canvas"></canvas>
-            <!-- Capa interactiva de selección y guías -->
             <div id="canvas-overlay" class="canvas-overlay"></div>
           </div>
         </div>
@@ -346,7 +308,6 @@
 
   </div>
 
-  <!-- Script principal con toda la lógica -->
   <script src="app.js"></script>
 </body>
 </html>
