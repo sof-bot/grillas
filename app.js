@@ -4,12 +4,13 @@
  * =============================================================================
  * Prototipo funcional estático (HTML5 + CSS3 + Vanilla JavaScript)
  * 
- * - Fondo negro (#000) y lienzo delimitado con línea fina gris oscura
- * - Único modo de dibujo: Módulos LED con damero saturated y etiquetas planas
- * - Selección múltiple (Shift + clic y recuadro de selección Marquee)
- * - Barra de herramientas: alineación, centrado en lienzo y distribución con separación
- * - Guías magnéticas (Snap) a bordes y centros de otras pantallas y del lienzo
- * - Movimiento con flechas del teclado (1 px, Shift = 10 px)
+ * ETAPA 2: CAPAS DE TEXTO Y FIGURAS
+ * - Panel de capas: mostrar/ocultar, bloquear, duplicar, borrar y orden (frente/fondo)
+ * - Tipos de elemento: texto, círculo, cuadrado/rectángulo, línea y degradado (lineal y radial)
+ * - Transformación interactiva en lienzo: arrastrar, escalar y rotar con manijas
+ * - Campos numéricos en tiempo real para posición X/Y, tamaño, relleno, borde y opacidad
+ * - Texto: contenido, tamaño, color, alineación, peso y carga de tipografías (.ttf, .otf, .woff2)
+ * - Persistencia completa de capas y tipografías en JSON y localStorage
  * =============================================================================
  */
 
@@ -36,19 +37,15 @@
     "Bandeja"
   ];
 
-  // Paleta de colores sobrios y saturados para damero
   const DEFAULT_COLOR_PALETTES = [
-    { c1: "#102a5c", c2: "#1d4ed8" }, // Azul
-    { c1: "#4c0519", c2: "#be123c" }, // Rojo
-    { c1: "#064e3b", c2: "#047857" }, // Verde
-    { c1: "#451a03", c2: "#b45309" }, // Ámbar
-    { c1: "#2e1065", c2: "#6d28d9" }, // Violeta
-    { c1: "#18181b", c2: "#3f3f46" }  // Grises oscuros
+    { c1: "#102a5c", c2: "#1d4ed8" },
+    { c1: "#4c0519", c2: "#be123c" },
+    { c1: "#064e3b", c2: "#047857" },
+    { c1: "#451a03", c2: "#b45309" },
+    { c1: "#2e1065", c2: "#6d28d9" },
+    { c1: "#18181b", c2: "#3f3f46" }
   ];
 
-  /**
-   * Layout inicial de ejemplo en cruz desplegada
-   */
   const DEFAULT_INITIAL_SCREENS = [
     {
       id: "screen_central",
@@ -154,15 +151,19 @@
 
 
   /* ===========================================================================
-   * 2. STATE MANAGEMENT
+   * 2. STATE MANAGEMENT (Pantallas, Capas Gráficas y Fuentes)
    * =========================================================================== */
   const state = {
     screens: [],
-    selectedScreenId: null, // Pantalla principal para formulario
-    selectedScreenIds: [],  // Lista para selección múltiple
+    selectedScreenId: null,
+    selectedScreenIds: [],
+    // Capas gráficas (Etapa 2)
+    layers: [],
+    selectedLayerId: null,
+    customFonts: [], // [{ name, dataUrl }]
     locations: [...DEFAULT_LOCATIONS],
     canvas: {
-      mode: "auto", // 'auto' o 'manual'
+      mode: "auto",
       manualWidth: 2400,
       manualHeight: 2400,
       computedWidth: 2400,
@@ -180,16 +181,22 @@
       snapEnabled: true,
       showLabels: true,
       showSublabels: true,
-      canvasBg: "#000000", // '#000000' o 'transparent'
+      canvasBg: "#000000",
       distributeSpacing: 0
     },
     interaction: {
+      // Arrastre de pantallas
       draggingScreenId: null,
-      dragInitialPositions: {}, // Posiciones de todas las pantallas seleccionadas al iniciar drag
+      dragInitialPositions: {},
       dragStartClientX: 0,
       dragStartClientY: 0,
       hasMoved: false,
-      activeSnapLines: [], // Guías magnéticas visibles
+      activeSnapLines: [],
+      // Arrastre y transformación de capas (Etapa 2)
+      layerAction: null, // 'move', 'rotate', 'scale-tl', 'scale-tr', 'scale-br', 'scale-bl'
+      layerInitialState: null,
+      layerStartPos: { x: 0, y: 0 },
+      // Selección Marquee
       marquee: {
         active: false,
         startX: 0,
@@ -203,9 +210,8 @@
 
 
   /* ===========================================================================
-   * 3. CALCULATION ENGINE
-   * ===========================================================================
-   */
+   * 3. CALCULATION ENGINE (Pantallas LED)
+   * =========================================================================== */
   const CalcEngine = {
     recalculate(screen) {
       const warnings = [];
@@ -227,7 +233,7 @@
         const roundedPxH = Math.round(rawPxH);
 
         if (Math.abs(rawPxW - roundedPxW) > 0.001 || Math.abs(rawPxH - roundedPxH) > 0.001) {
-          warnings.push(`Píxeles no enteros: ${rawPxW.toFixed(2)}×${rawPxH.toFixed(2)} px (redondeado a ${roundedPxW}×${roundedPxH} px).`);
+          warnings.push(`Píxeles no enteros: ${rawPxW.toFixed(2)}×${rawPxH.toFixed(2)} px.`);
         }
 
         screen.widthPx = roundedPxW;
@@ -245,31 +251,28 @@
         screen.pitch = Number(((calcPitchW + calcPitchH) / 2).toFixed(3));
       }
 
-      // Módulos
       const exactCols = screen.widthM / screen.moduleWidthM;
       const exactRows = screen.heightM / screen.moduleHeightM;
       const roundedCols = Math.max(1, Math.round(exactCols));
       const roundedRows = Math.max(1, Math.round(exactRows));
 
       if (Math.abs(exactCols - roundedCols) > 0.01 || Math.abs(exactRows - roundedRows) > 0.01) {
-        warnings.push(`Módulos no enteros: ${exactCols.toFixed(2)} × ${exactRows.toFixed(2)} módulos.`);
+        warnings.push(`Módulos no enteros: ${exactCols.toFixed(2)} × ${exactRows.toFixed(2)}.`);
       }
 
       screen.cols = roundedCols;
       screen.rows = roundedRows;
 
-      // Px por módulo
       const rawModPxW = screen.widthPx / screen.cols;
       const rawModPxH = screen.heightPx / screen.rows;
 
       if (Math.abs(rawModPxW - Math.round(rawModPxW)) > 0.001 || Math.abs(rawModPxH - Math.round(rawModPxH)) > 0.001) {
-        warnings.push(`Px por módulo no enteros: ${rawModPxW.toFixed(2)} × ${rawModPxH.toFixed(2)} px.`);
+        warnings.push(`Px por módulo no enteros: ${rawModPxW.toFixed(2)} × ${rawModPxH.toFixed(2)}.`);
       }
 
       screen.modPxW = Math.round(rawModPxW);
       screen.modPxH = Math.round(rawModPxH);
 
-      // Pitch real
       const pitchRealW = (screen.moduleWidthM * 1000) / (rawModPxW || 1);
       const pitchRealH = (screen.moduleHeightM * 1000) / (rawModPxH || 1);
       screen.pitchReal = Number(((pitchRealW + pitchRealH) / 2).toFixed(3));
@@ -319,9 +322,175 @@
 
 
   /* ===========================================================================
-   * 4. RENDER ENGINE (Lienzo Negro con Borde Gris y Damero Módulos LED)
-   * ===========================================================================
-   */
+   * 4. LAYERS ENGINE (Gestión de Modelos y Creación de Capas)
+   * =========================================================================== */
+  const LayersEngine = {
+    createLayer(type) {
+      const id = `layer_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const count = state.layers.filter(l => l.type === type).length + 1;
+
+      // Dimensiones iniciales razonables y centradas
+      const cw = state.canvas.computedWidth;
+      const ch = state.canvas.computedHeight;
+      const initX = Math.round(cw / 2 - 150);
+      const initY = Math.round(ch / 2 - 100);
+
+      const baseLayer = {
+        id,
+        type,
+        name: `${this.getTypeLabel(type)} ${count}`,
+        visible: true,
+        locked: false,
+        x: initX,
+        y: initY,
+        width: 300,
+        height: 200,
+        rotation: 0,
+        opacity: 1.0,
+        fillColor: "#ffffff",
+        strokeColor: "#333333",
+        strokeWidth: 0
+      };
+
+      if (type === "text") {
+        baseLayer.width = 400;
+        baseLayer.height = 100;
+        baseLayer.text = "Texto LED";
+        baseLayer.fontSize = 48;
+        baseLayer.fontFamily = FONT_MAIN;
+        baseLayer.fontWeight = "400";
+        baseLayer.textAlign = "center";
+        baseLayer.fillColor = "#ffffff";
+        baseLayer.strokeWidth = 0;
+      } else if (type === "circle") {
+        baseLayer.width = 240;
+        baseLayer.height = 240;
+        baseLayer.fillColor = "#ffffff";
+        baseLayer.strokeWidth = 0;
+      } else if (type === "line") {
+        baseLayer.width = 300;
+        baseLayer.height = 10;
+        baseLayer.strokeColor = "#ffffff";
+        baseLayer.strokeWidth = 3;
+        baseLayer.fillColor = "transparent";
+      } else if (type === "gradient") {
+        baseLayer.width = 300;
+        baseLayer.height = 300;
+        baseLayer.gradientType = "linear"; // 'linear' o 'radial'
+        baseLayer.gradientAngle = 90; // grados
+        baseLayer.gradientStops = [
+          { offset: 0.0, color: "#ffffff" },
+          { offset: 1.0, color: "#000000" }
+        ];
+      }
+
+      state.layers.push(baseLayer);
+      state.selectedLayerId = id;
+      state.selectedScreenIds = [];
+      state.selectedScreenId = null;
+
+      UIController.updateLayersList();
+      UIController.updateActiveLayerForm();
+      RenderEngine.render();
+      Persistence.saveAuto();
+
+      // Cambiar a la pestaña de capas
+      UIController.switchTab("tab-layers");
+      return baseLayer;
+    },
+
+    getTypeLabel(type) {
+      switch (type) {
+        case "text": return "Texto";
+        case "rect": return "Rectángulo";
+        case "circle": return "Círculo";
+        case "line": return "Línea";
+        case "gradient": return "Degradado";
+        default: return "Capa";
+      }
+    },
+
+    deleteLayer(id) {
+      state.layers = state.layers.filter(l => l.id !== id);
+      if (state.selectedLayerId === id) {
+        state.selectedLayerId = state.layers.length > 0 ? state.layers[state.layers.length - 1].id : null;
+      }
+      UIController.updateLayersList();
+      UIController.updateActiveLayerForm();
+      RenderEngine.render();
+      Persistence.saveAuto();
+    },
+
+    duplicateLayer(id) {
+      const orig = state.layers.find(l => l.id === id);
+      if (!orig) return;
+
+      const clone = JSON.parse(JSON.stringify(orig));
+      clone.id = `layer_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      clone.name = `${orig.name} (copia)`;
+      clone.x += 30;
+      clone.y += 30;
+
+      state.layers.push(clone);
+      state.selectedLayerId = clone.id;
+
+      UIController.updateLayersList();
+      UIController.updateActiveLayerForm();
+      RenderEngine.render();
+      Persistence.saveAuto();
+    },
+
+    toggleVisibility(id) {
+      const l = state.layers.find(ly => ly.id === id);
+      if (l) {
+        l.visible = !l.visible;
+        UIController.updateLayersList();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      }
+    },
+
+    toggleLock(id) {
+      const l = state.layers.find(ly => ly.id === id);
+      if (l) {
+        l.locked = !l.locked;
+        UIController.updateLayersList();
+        UIController.updateActiveLayerForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      }
+    },
+
+    moveOrder(id, direction) {
+      const idx = state.layers.findIndex(l => l.id === id);
+      if (idx === -1) return;
+
+      if (direction === "up" && idx < state.layers.length - 1) {
+        const temp = state.layers[idx];
+        state.layers[idx] = state.layers[idx + 1];
+        state.layers[idx + 1] = temp;
+      } else if (direction === "down" && idx > 0) {
+        const temp = state.layers[idx];
+        state.layers[idx] = state.layers[idx - 1];
+        state.layers[idx - 1] = temp;
+      } else if (direction === "front") {
+        const item = state.layers.splice(idx, 1)[0];
+        state.layers.push(item);
+      } else if (direction === "back") {
+        const item = state.layers.splice(idx, 1)[0];
+        state.layers.unshift(item);
+      }
+
+      UIController.updateLayersList();
+      RenderEngine.render();
+      Persistence.saveAuto();
+    }
+  };
+
+
+  /* ===========================================================================
+   * 5. RENDER ENGINE (Dibujo de Pantallas, Capas Gráficas y Manijas)
+   * =========================================================================== */
   const RenderEngine = {
     canvas: null,
     ctx: null,
@@ -338,7 +507,7 @@
         return;
       }
 
-      if (state.screens.length === 0) {
+      if (state.screens.length === 0 && state.layers.length === 0) {
         state.canvas.computedWidth = 1920;
         state.canvas.computedHeight = 1080;
         return;
@@ -349,6 +518,13 @@
       state.screens.forEach(s => {
         const right = s.x + s.widthPx;
         const bottom = s.y + s.heightPx;
+        if (right > maxX) maxX = right;
+        if (bottom > maxY) maxY = bottom;
+      });
+
+      state.layers.forEach(l => {
+        const right = l.x + l.width;
+        const bottom = l.y + l.height;
         if (right > maxX) maxX = right;
         if (bottom > maxY) maxY = bottom;
       });
@@ -373,35 +549,48 @@
       const ctx = this.ctx;
       ctx.imageSmoothingEnabled = false;
 
-      // 1. Fondo del lienzo (Negro o Transparente)
+      // 1. Fondo del lienzo
       ctx.clearRect(0, 0, w, h);
       if (state.settings.canvasBg === "transparent") {
-        // En vista interactiva muestra sutil cuadrícula oscura para indicar transparencia
         this.renderTransparencyGrid(ctx, w, h);
       } else {
         ctx.fillStyle = "#000000";
         ctx.fillRect(0, 0, w, h);
       }
 
-      // Borde del lienzo en gris oscuro para distinguirlo del área de trabajo (#333333)
+      // Borde del lienzo en gris oscuro (#333333)
       ctx.strokeStyle = "#333333";
       ctx.lineWidth = 1;
       ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
 
-      // 2. Dibujar pantallas en modo Módulos LED (damero físico completo)
+      // 2. Pantallas LED
       state.screens.forEach(screen => {
         const isSelected = state.selectedScreenIds.includes(screen.id);
         const isPrimary = screen.id === state.selectedScreenId;
         this.renderScreen(ctx, screen, isSelected, isPrimary);
       });
 
-      // 3. Guías magnéticas de alineación
+      // 3. Capas Gráficas (Texto, Figuras, Líneas, Degradados)
+      state.layers.forEach(layer => {
+        if (layer.visible) {
+          const isSelected = layer.id === state.selectedLayerId;
+          this.renderLayer(ctx, layer, isSelected);
+        }
+      });
+
+      // 4. Manijas de transformación para la capa seleccionada
+      const activeLayer = state.layers.find(l => l.id === state.selectedLayerId);
+      if (activeLayer && activeLayer.visible && !activeLayer.locked) {
+        this.renderLayerTransformControls(ctx, activeLayer);
+      }
+
+      // 5. Guías magnéticas
       this.renderSnapGuides(ctx);
 
-      // 4. Recuadro de selección Marquee
+      // 6. Recuadro Marquee
       this.renderMarquee(ctx);
 
-      // 5. Actualizar HUD
+      // 7. Actualizar HUD
       const hudResText = document.getElementById("hud-res-text");
       if (hudResText) {
         hudResText.textContent = `${w} × ${h} px`;
@@ -423,11 +612,9 @@
       const { x, y, widthPx, heightPx, cols, rows, color1, color2 } = screen;
 
       ctx.save();
-
       const colStep = widthPx / cols;
       const rowStep = heightPx / rows;
 
-      // Dibujar damero donde cada celda es un módulo físico completo
       for (let r = 0; r < rows; r++) {
         const cellY = Math.floor(y + r * rowStep);
         const nextCellY = Math.floor(y + (r + 1) * rowStep);
@@ -443,13 +630,11 @@
         }
       }
 
-      // Borde de la pantalla
       if (isSelected) {
         ctx.strokeStyle = isPrimary ? "#ffffff" : "#cccccc";
         ctx.lineWidth = isPrimary ? 1.5 : 1;
         ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
 
-        // Manijas en las esquinas
         this.drawHandle(ctx, x, y, isPrimary);
         this.drawHandle(ctx, x + widthPx, y, isPrimary);
         this.drawHandle(ctx, x, y + heightPx, isPrimary);
@@ -460,7 +645,6 @@
         ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
       }
 
-      // Etiquetas planas
       if (state.settings.showLabels) {
         this.renderScreenLabels(ctx, screen);
       }
@@ -483,19 +667,14 @@
       ctx.save();
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-
-      // Totalmente planas: sin sombra, sin contorno
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
 
       ctx.font = `${fontWeight} ${fontSize}px ${FONT_MAIN}`;
       ctx.fillStyle = fontColor;
 
       const showSub = state.settings.showSublabels && heightPx >= 70 && widthPx >= 90;
       const labelY = showSub ? centerY - fontSize * 0.45 : centerY;
-
       ctx.fillText(label, centerX, labelY);
 
       if (showSub) {
@@ -513,6 +692,167 @@
       }
 
       ctx.restore();
+    },
+
+    /**
+     * Dibuja una capa gráfica (Texto, Figuras, Líneas, Degradados)
+     */
+    renderLayer(ctx, layer, isSelected) {
+      const { type, x, y, width, height, rotation, opacity } = layer;
+      const cx = x + width / 2;
+      const cy = y + height / 2;
+      const rad = ((rotation || 0) * Math.PI) / 180;
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, opacity !== undefined ? opacity : 1));
+      ctx.translate(cx, cy);
+      ctx.rotate(rad);
+
+      const halfW = width / 2;
+      const halfH = height / 2;
+
+      if (type === "rect") {
+        if (layer.fillColor && layer.fillColor !== "transparent") {
+          ctx.fillStyle = layer.fillColor;
+          ctx.fillRect(-halfW, -halfH, width, height);
+        }
+        if (layer.strokeWidth > 0 && layer.strokeColor && layer.strokeColor !== "transparent") {
+          ctx.strokeStyle = layer.strokeColor;
+          ctx.lineWidth = layer.strokeWidth;
+          ctx.strokeRect(-halfW, -halfH, width, height);
+        }
+      } else if (type === "circle") {
+        ctx.beginPath();
+        ctx.ellipse(0, 0, Math.abs(halfW), Math.abs(halfH), 0, 0, Math.PI * 2);
+        if (layer.fillColor && layer.fillColor !== "transparent") {
+          ctx.fillStyle = layer.fillColor;
+          ctx.fill();
+        }
+        if (layer.strokeWidth > 0 && layer.strokeColor && layer.strokeColor !== "transparent") {
+          ctx.strokeStyle = layer.strokeColor;
+          ctx.lineWidth = layer.strokeWidth;
+          ctx.stroke();
+        }
+      } else if (type === "line") {
+        ctx.beginPath();
+        ctx.moveTo(-halfW, 0);
+        ctx.lineTo(halfW, 0);
+        ctx.strokeStyle = layer.strokeColor || "#ffffff";
+        ctx.lineWidth = layer.strokeWidth || 2;
+        ctx.stroke();
+      } else if (type === "gradient") {
+        let grad;
+        if (layer.gradientType === "radial") {
+          const r = Math.max(halfW, halfH);
+          grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+        } else {
+          const angleRad = ((layer.gradientAngle || 90) * Math.PI) / 180;
+          const x1 = -Math.cos(angleRad) * halfW;
+          const y1 = -Math.sin(angleRad) * halfH;
+          const x2 = Math.cos(angleRad) * halfW;
+          const y2 = Math.sin(angleRad) * halfH;
+          grad = ctx.createLinearGradient(x1, y1, x2, y2);
+        }
+
+        const stops = layer.gradientStops && layer.gradientStops.length >= 2
+          ? layer.gradientStops
+          : [{ offset: 0, color: "#ffffff" }, { offset: 1, color: "#000000" }];
+
+        stops.forEach(st => {
+          grad.addColorStop(Math.max(0, Math.min(1, st.offset)), st.color);
+        });
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(-halfW, -halfH, width, height);
+
+        if (layer.strokeWidth > 0 && layer.strokeColor && layer.strokeColor !== "transparent") {
+          ctx.strokeStyle = layer.strokeColor;
+          ctx.lineWidth = layer.strokeWidth;
+          ctx.strokeRect(-halfW, -halfH, width, height);
+        }
+      } else if (type === "text") {
+        const fontSize = layer.fontSize || 36;
+        const fontFam = layer.fontFamily ? `"${layer.fontFamily}", ${FONT_MAIN}` : FONT_MAIN;
+        const weight = layer.fontWeight || "400";
+
+        ctx.font = `${weight} ${fontSize}px ${fontFam}`;
+        ctx.textAlign = layer.textAlign || "center";
+        ctx.textBaseline = "middle";
+
+        let textX = 0;
+        if (layer.textAlign === "left") textX = -halfW;
+        else if (layer.textAlign === "right") textX = halfW;
+
+        if (layer.fillColor && layer.fillColor !== "transparent") {
+          ctx.fillStyle = layer.fillColor;
+          ctx.fillText(layer.text || "", textX, 0);
+        }
+
+        if (layer.strokeWidth > 0 && layer.strokeColor && layer.strokeColor !== "transparent") {
+          ctx.strokeStyle = layer.strokeColor;
+          ctx.lineWidth = layer.strokeWidth;
+          ctx.strokeText(layer.text || "", textX, 0);
+        }
+      }
+
+      ctx.restore();
+    },
+
+    /**
+     * Dibuja los controles de transformación (caja delimitadora, manijas de escala y manija de rotación)
+     */
+    renderLayerTransformControls(ctx, layer) {
+      const { x, y, width, height, rotation } = layer;
+      const cx = x + width / 2;
+      const cy = y + height / 2;
+      const rad = ((rotation || 0) * Math.PI) / 180;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rad);
+
+      const halfW = width / 2;
+      const halfH = height / 2;
+
+      // Caja delimitadora fina
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(-halfW, -halfH, width, height);
+
+      // Línea hacia manija de rotación
+      ctx.beginPath();
+      ctx.moveTo(0, -halfH);
+      ctx.lineTo(0, -halfH - 22);
+      ctx.strokeStyle = "#ffffff";
+      ctx.setLineDash([]);
+      ctx.stroke();
+
+      // Manija de rotación (círculo)
+      ctx.beginPath();
+      ctx.arc(0, -halfH - 22, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.strokeStyle = "#000000";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Manijas de escala en las 4 esquinas (cuadrados)
+      this.drawCornerHandle(ctx, -halfW, -halfH);
+      this.drawCornerHandle(ctx, halfW, -halfH);
+      this.drawCornerHandle(ctx, halfW, halfH);
+      this.drawCornerHandle(ctx, -halfW, halfH);
+
+      ctx.restore();
+    },
+
+    drawCornerHandle(ctx, hx, hy) {
+      const size = 6;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(hx - size / 2, hy - size / 2, size, size);
+      ctx.strokeStyle = "#000000";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(hx - size / 2, hy - size / 2, size, size);
     },
 
     drawHandle(ctx, hx, hy, isPrimary) {
@@ -572,9 +912,8 @@
 
 
   /* ===========================================================================
-   * 5. VIEWPORT ENGINE (Zoom y Pan)
-   * ===========================================================================
-   */
+   * 6. VIEWPORT ENGINE (Zoom y Pan)
+   * =========================================================================== */
   const ViewportEngine = {
     workspace: null,
     stage: null,
@@ -719,9 +1058,8 @@
 
 
   /* ===========================================================================
-   * 6. INTERACTION ENGINE (Selección múltiple, Marquee, Drag grupal y Snap a bordes y centros)
-   * ===========================================================================
-   */
+   * 7. INTERACTION ENGINE (Pantallas, Capas: Arrastrar, Escalar, Rotar)
+   * =========================================================================== */
   const InteractionEngine = {
     init() {
       const stage = ViewportEngine.stage;
@@ -732,8 +1070,68 @@
       window.addEventListener("mousemove", (e) => this.onMouseMove(e));
       window.addEventListener("mouseup", (e) => this.onMouseUp(e));
 
-      // Movimiento con flechas del teclado (1 px y Shift = 10 px)
       window.addEventListener("keydown", (e) => this.onKeyDown(e));
+    },
+
+    /**
+     * Detección geométrica de clic sobre una capa con rotación
+     */
+    getLayerAt(canvasX, canvasY) {
+      for (let i = state.layers.length - 1; i >= 0; i--) {
+        const l = state.layers[i];
+        if (!l.visible) continue;
+
+        const cx = l.x + l.width / 2;
+        const cy = l.y + l.height / 2;
+        const rad = -((l.rotation || 0) * Math.PI) / 180;
+
+        const dx = canvasX - cx;
+        const dy = canvasY - cy;
+        const localX = dx * Math.cos(rad) - dy * Math.sin(rad);
+        const localY = dx * Math.sin(rad) + dy * Math.cos(rad);
+
+        const halfW = l.width / 2;
+        const halfH = l.height / 2;
+
+        if (localX >= -halfW && localX <= halfW && localY >= -halfH && localY <= halfH) {
+          return l;
+        }
+      }
+      return null;
+    },
+
+    /**
+     * Detección de manijas de transformación en la capa seleccionada
+     */
+    getLayerHandleAt(canvasX, canvasY, layer) {
+      if (!layer || layer.locked) return null;
+
+      const cx = layer.x + layer.width / 2;
+      const cy = layer.y + layer.height / 2;
+      const rad = -((layer.rotation || 0) * Math.PI) / 180;
+
+      const dx = canvasX - cx;
+      const dy = canvasY - cy;
+      const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+      const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+
+      const halfW = layer.width / 2;
+      const halfH = layer.height / 2;
+      const tolerance = 9;
+
+      // Manija de rotación (arriba del centro superior)
+      const rotHandleY = -halfH - 22;
+      if (Math.hypot(lx - 0, ly - rotHandleY) <= tolerance) {
+        return "rotate";
+      }
+
+      // Manijas de esquina
+      if (Math.hypot(lx - (-halfW), ly - (-halfH)) <= tolerance) return "scale-tl";
+      if (Math.hypot(lx - halfW, ly - (-halfH)) <= tolerance) return "scale-tr";
+      if (Math.hypot(lx - halfW, ly - halfH) <= tolerance) return "scale-br";
+      if (Math.hypot(lx - (-halfW), ly - halfH) <= tolerance) return "scale-bl";
+
+      return null;
     },
 
     getScreenAt(canvasX, canvasY) {
@@ -755,11 +1153,46 @@
       if (e.button !== 0 || e.code === "Space") return;
 
       const pos = ViewportEngine.clientToCanvasCoords(e.clientX, e.clientY);
-      const clickedScreen = this.getScreenAt(pos.x, pos.y);
 
+      // 1. Probar manijas de transformación en la capa activa
+      const activeLayer = state.layers.find(l => l.id === state.selectedLayerId);
+      if (activeLayer && activeLayer.visible && !activeLayer.locked) {
+        const handle = this.getLayerHandleAt(pos.x, pos.y, activeLayer);
+        if (handle) {
+          state.interaction.layerAction = handle;
+          state.interaction.layerStartPos = { x: pos.x, y: pos.y };
+          state.interaction.layerInitialState = JSON.parse(JSON.stringify(activeLayer));
+          return;
+        }
+      }
+
+      // 2. Probar selección de capas (las capas están al frente de las pantallas)
+      const clickedLayer = this.getLayerAt(pos.x, pos.y);
+      if (clickedLayer) {
+        state.selectedLayerId = clickedLayer.id;
+        state.selectedScreenIds = [];
+        state.selectedScreenId = null;
+
+        if (!clickedLayer.locked) {
+          state.interaction.layerAction = "move";
+          state.interaction.layerStartPos = { x: pos.x, y: pos.y };
+          state.interaction.layerInitialState = JSON.parse(JSON.stringify(clickedLayer));
+        }
+
+        UIController.updateLayersList();
+        UIController.updateActiveLayerForm();
+        UIController.updateActiveScreenForm();
+        UIController.updateSelectionHint();
+        RenderEngine.render();
+        return;
+      }
+
+      // 3. Probar selección de pantallas
+      const clickedScreen = this.getScreenAt(pos.x, pos.y);
       if (clickedScreen) {
+        state.selectedLayerId = null;
+
         if (e.shiftKey) {
-          // Shift + Clic: Alternar pantalla en la selección múltiple
           if (state.selectedScreenIds.includes(clickedScreen.id)) {
             state.selectedScreenIds = state.selectedScreenIds.filter(id => id !== clickedScreen.id);
             state.selectedScreenId = state.selectedScreenIds[state.selectedScreenIds.length - 1] || null;
@@ -768,14 +1201,12 @@
             state.selectedScreenId = clickedScreen.id;
           }
         } else {
-          // Clic normal: Si la pantalla no estaba en la selección, se selecciona sola
           if (!state.selectedScreenIds.includes(clickedScreen.id)) {
             state.selectedScreenIds = [clickedScreen.id];
             state.selectedScreenId = clickedScreen.id;
           }
         }
 
-        // Iniciar arrastre para todas las pantallas seleccionadas
         state.interaction.draggingScreenId = clickedScreen.id;
         state.interaction.dragStartClientX = pos.x;
         state.interaction.dragStartClientY = pos.y;
@@ -790,11 +1221,13 @@
         });
 
         UIController.updateActiveScreenForm();
+        UIController.updateActiveLayerForm();
         UIController.updateSelectionHint();
         RenderEngine.render();
 
       } else {
-        // Clic en fondo vacío: Iniciar recuadro de selección Marquee
+        // Clic en fondo: Iniciar recuadro de selección Marquee
+        state.selectedLayerId = null;
         if (!e.shiftKey) {
           state.selectedScreenIds = [];
           state.selectedScreenId = null;
@@ -810,6 +1243,7 @@
         };
 
         UIController.updateActiveScreenForm();
+        UIController.updateActiveLayerForm();
         UIController.updateSelectionHint();
         RenderEngine.render();
       }
@@ -818,7 +1252,59 @@
     onMouseMove(e) {
       const pos = ViewportEngine.clientToCanvasCoords(e.clientX, e.clientY);
 
-      // 1. Arrastre de recuadro de selección Marquee
+      // A. Transformación interactiva de capas (Mover, Rotar, Escalar)
+      if (state.interaction.layerAction && state.selectedLayerId) {
+        const layer = state.layers.find(l => l.id === state.selectedLayerId);
+        const init = state.interaction.layerInitialState;
+        if (!layer || !init) return;
+
+        const action = state.interaction.layerAction;
+
+        if (action === "move") {
+          const dx = pos.x - state.interaction.layerStartPos.x;
+          const dy = pos.y - state.interaction.layerStartPos.y;
+          layer.x = Math.round(init.x + dx);
+          layer.y = Math.round(init.y + dy);
+
+        } else if (action === "rotate") {
+          const cx = init.x + init.width / 2;
+          const cy = init.y + init.height / 2;
+          const angle = Math.atan2(pos.y - cy, pos.x - cx) * (180 / Math.PI) + 90;
+          layer.rotation = Math.round((angle + 360) % 360);
+
+        } else if (action.startsWith("scale")) {
+          const cx = init.x + init.width / 2;
+          const cy = init.y + init.height / 2;
+          const rad = -((init.rotation || 0) * Math.PI) / 180;
+
+          // Proyectar coordenadas del mouse al espacio local de la capa
+          const dx = pos.x - cx;
+          const dy = pos.y - cy;
+          const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+          const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+
+          let newHalfW = Math.abs(lx);
+          let newHalfH = Math.abs(ly);
+
+          // Escala mínima 10px
+          newHalfW = Math.max(5, newHalfW);
+          newHalfH = Math.max(5, newHalfH);
+
+          const newW = Math.round(newHalfW * 2);
+          const newH = Math.round(newHalfH * 2);
+
+          layer.width = newW;
+          layer.height = newH;
+          layer.x = Math.round(cx - newW / 2);
+          layer.y = Math.round(cy - newH / 2);
+        }
+
+        UIController.syncActiveLayerFormValues(layer);
+        RenderEngine.render();
+        return;
+      }
+
+      // B. Recuadro Marquee
       if (state.interaction.marquee.active) {
         state.interaction.marquee.currentX = pos.x;
         state.interaction.marquee.currentY = pos.y;
@@ -826,7 +1312,7 @@
         return;
       }
 
-      // 2. Arrastre de pantallas
+      // C. Arrastre de pantallas
       if (!state.interaction.draggingScreenId) return;
 
       const leaderScreen = state.screens.find(s => s.id === state.interaction.draggingScreenId);
@@ -843,64 +1329,50 @@
 
       state.interaction.activeSnapLines = [];
 
-      // Snap magnético a bordes y centros de otras pantallas y del lienzo
       if (state.settings.snapEnabled) {
         const threshold = 8;
         const cw = state.canvas.computedWidth;
         const ch = state.canvas.computedHeight;
 
-        // Puntos de referencia de la pantalla líder
         const leaderW = leaderScreen.widthPx;
         const leaderH = leaderScreen.heightPx;
 
-        const leaderCenterX = targetLeaderX + leaderW / 2;
-        const leaderRight = targetLeaderX + leaderW;
-        const leaderCenterY = targetLeaderY + leaderH / 2;
-        const leaderBottom = targetLeaderY + leaderH;
-
-        // Metas X: Bordes y centro del lienzo
         const snapTargetsX = [
           { val: 0, line: 0 },
           { val: cw / 2 - leaderW / 2, line: cw / 2 },
           { val: cw - leaderW, line: cw }
         ];
 
-        // Metas Y: Bordes y centro del lienzo
         const snapTargetsY = [
           { val: 0, line: 0 },
           { val: ch / 2 - leaderH / 2, line: ch / 2 },
           { val: ch - leaderH, line: ch }
         ];
 
-        // Añadir bordes y centros de otras pantallas NO seleccionadas
         state.screens.forEach(other => {
           if (state.selectedScreenIds.includes(other.id)) return;
-
           const ocX = other.x + other.widthPx / 2;
           const oRight = other.x + other.widthPx;
           const ocY = other.y + other.heightPx / 2;
           const oBottom = other.y + other.heightPx;
 
-          // Alineaciones X
           snapTargetsX.push(
-            { val: other.x, line: other.x },                     // Izq con Izq
-            { val: oRight, line: oRight },                       // Izq con Der
-            { val: other.x - leaderW, line: other.x },           // Der con Izq
-            { val: oRight - leaderW, line: oRight },             // Der con Der
-            { val: ocX - leaderW / 2, line: ocX }                // Centro con Centro
+            { val: other.x, line: other.x },
+            { val: oRight, line: oRight },
+            { val: other.x - leaderW, line: other.x },
+            { val: oRight - leaderW, line: oRight },
+            { val: ocX - leaderW / 2, line: ocX }
           );
 
-          // Alineaciones Y
           snapTargetsY.push(
-            { val: other.y, line: other.y },                     // Arriba con Arriba
-            { val: oBottom, line: oBottom },                     // Arriba con Abajo
-            { val: other.y - leaderH, line: other.y },           // Abajo con Arriba
-            { val: oBottom - leaderH, line: oBottom },           // Abajo con Abajo
-            { val: ocY - leaderH / 2, line: ocY }                // Centro con Centro
+            { val: other.y, line: other.y },
+            { val: oBottom, line: oBottom },
+            { val: other.y - leaderH, line: other.y },
+            { val: oBottom - leaderH, line: oBottom },
+            { val: ocY - leaderH / 2, line: ocY }
           );
         });
 
-        // Evaluar mejor snap X
         let bestDiffX = threshold + 1;
         let snapX = null;
         let lineX = null;
@@ -919,7 +1391,6 @@
           state.interaction.activeSnapLines.push({ type: "vertical", val: lineX });
         }
 
-        // Evaluar mejor snap Y
         let bestDiffY = threshold + 1;
         let snapY = null;
         let lineY = null;
@@ -939,11 +1410,9 @@
         }
       }
 
-      // Desplazamiento final aplicado
       const finalDeltaX = Math.round(targetLeaderX - leaderInit.x);
       const finalDeltaY = Math.round(targetLeaderY - leaderInit.y);
 
-      // Mover todas las pantallas seleccionadas al unísono
       state.selectedScreenIds.forEach(id => {
         const s = state.screens.find(sc => sc.id === id);
         const initPos = state.interaction.dragInitialPositions[id];
@@ -953,7 +1422,6 @@
         }
       });
 
-      // Sincronizar inputs X/Y del panel para la pantalla activa
       const inputX = document.getElementById("screen-pos-x");
       const inputY = document.getElementById("screen-pos-y");
       if (inputX && leaderScreen) inputX.value = leaderScreen.x;
@@ -963,6 +1431,15 @@
     },
 
     onMouseUp() {
+      // Finalizar transformación de capa
+      if (state.interaction.layerAction) {
+        state.interaction.layerAction = null;
+        state.interaction.layerInitialState = null;
+        RenderEngine.render();
+        Persistence.saveAuto();
+        return;
+      }
+
       // Finalizar Marquee
       if (state.interaction.marquee.active) {
         const m = state.interaction.marquee;
@@ -1000,7 +1477,7 @@
         return;
       }
 
-      // Finalizar arrastre
+      // Finalizar arrastre de pantallas
       if (state.interaction.draggingScreenId) {
         state.interaction.draggingScreenId = null;
         state.interaction.activeSnapLines = [];
@@ -1016,8 +1493,6 @@
         return;
       }
 
-      if (state.selectedScreenIds.length === 0) return;
-
       const step = e.shiftKey ? 10 : 1;
       let dx = 0;
       let dy = 0;
@@ -1030,32 +1505,47 @@
 
       e.preventDefault();
 
-      state.selectedScreenIds.forEach(id => {
-        const s = state.screens.find(sc => sc.id === id);
-        if (s) {
-          s.x = Math.max(0, s.x + dx);
-          s.y = Math.max(0, s.y + dy);
+      // Si hay una capa seleccionada, mover la capa
+      if (state.selectedLayerId) {
+        const layer = state.layers.find(l => l.id === state.selectedLayerId);
+        if (layer && !layer.locked) {
+          layer.x = Math.max(0, layer.x + dx);
+          layer.y = Math.max(0, layer.y + dy);
+          UIController.syncActiveLayerFormValues(layer);
+          RenderEngine.render();
+          Persistence.saveAuto();
         }
-      });
-
-      const activeScreen = state.screens.find(s => s.id === state.selectedScreenId);
-      if (activeScreen) {
-        const inputX = document.getElementById("screen-pos-x");
-        const inputY = document.getElementById("screen-pos-y");
-        if (inputX) inputX.value = activeScreen.x;
-        if (inputY) inputY.value = activeScreen.y;
+        return;
       }
 
-      RenderEngine.render();
-      Persistence.saveAuto();
+      // Si hay pantallas seleccionadas, mover pantallas
+      if (state.selectedScreenIds.length > 0) {
+        state.selectedScreenIds.forEach(id => {
+          const s = state.screens.find(sc => sc.id === id);
+          if (s) {
+            s.x = Math.max(0, s.x + dx);
+            s.y = Math.max(0, s.y + dy);
+          }
+        });
+
+        const activeScreen = state.screens.find(s => s.id === state.selectedScreenId);
+        if (activeScreen) {
+          const inputX = document.getElementById("screen-pos-x");
+          const inputY = document.getElementById("screen-pos-y");
+          if (inputX) inputX.value = activeScreen.x;
+          if (inputY) inputY.value = activeScreen.y;
+        }
+
+        RenderEngine.render();
+        Persistence.saveAuto();
+      }
     }
   };
 
 
   /* ===========================================================================
-   * 7. ALIGNMENT & DISTRIBUTION ENGINE (Barra de herramientas de alineación)
-   * ===========================================================================
-   */
+   * 8. ALIGNMENT & DISTRIBUTION ENGINE
+   * =========================================================================== */
   const AlignmentEngine = {
     getSelectedScreens() {
       return state.screens.filter(s => state.selectedScreenIds.includes(s.id));
@@ -1080,7 +1570,6 @@
       const ch = state.canvas.computedHeight;
 
       if (selected.length === 1) {
-        // Respecto al lienzo si hay una sola pantalla
         const s = selected[0];
         if (type === "left") s.x = 0;
         else if (type === "center-h") s.x = Math.round((cw - s.widthPx) / 2);
@@ -1089,7 +1578,6 @@
         else if (type === "center-v") s.y = Math.round((ch - s.heightPx) / 2);
         else if (type === "bottom") s.y = ch - s.heightPx;
       } else {
-        // Respecto a la selección si hay varias
         const b = this.getSelectionBounds(selected);
         selected.forEach(s => {
           if (type === "left") s.x = b.minX;
@@ -1167,27 +1655,49 @@
 
 
   /* ===========================================================================
-   * 8. UI CONTROLLER (Formularios, Tabla Resumen, Settings)
-   * ===========================================================================
-   */
+   * 9. UI CONTROLLER (Formularios, Capas, Tipografías, Tabla Resumen)
+   * =========================================================================== */
   const UIController = {
     init() {
       this.bindTabNavigation();
       this.bindTopbarControls();
       this.bindAlignmentToolbar();
       this.bindScreenListControls();
+      this.bindLayersControls();
       this.bindSettingsControls();
       this.bindLandingScreen();
       this.renderLocationsList();
       this.updateScreensSelector();
       this.updateActiveScreenForm();
+      this.updateLayersList();
+      this.updateActiveLayerForm();
       this.updateSummaryTable();
       this.updateSelectionHint();
+      this.updateFontTagsList();
+    },
+
+    switchTab(tabId) {
+      document.querySelectorAll(".tab-btn").forEach(t => {
+        t.classList.toggle("active", t.dataset.tab === tabId);
+      });
+      document.querySelectorAll(".sidebar-tab-content").forEach(c => {
+        c.classList.toggle("active", c.id === tabId);
+      });
+      if (tabId === "tab-summary") {
+        this.updateSummaryTable();
+      }
     },
 
     updateSelectionHint() {
       const hint = document.getElementById("selection-status-hint");
       if (!hint) return;
+
+      if (state.selectedLayerId) {
+        const l = state.layers.find(ly => ly.id === state.selectedLayerId);
+        hint.textContent = l ? `Capa: ${l.name}` : "Capa seleccionada";
+        return;
+      }
+
       const count = state.selectedScreenIds.length;
       hint.textContent = count === 1 
         ? "1 pantalla seleccionada" 
@@ -1202,9 +1712,7 @@
       if (enterBtn && landing) {
         enterBtn.addEventListener("click", () => {
           landing.classList.add("hidden");
-          setTimeout(() => {
-            ViewportEngine.zoomToFit();
-          }, 100);
+          setTimeout(() => ViewportEngine.zoomToFit(), 100);
         });
       }
 
@@ -1219,24 +1727,12 @@
       const tabs = document.querySelectorAll(".tab-btn");
       tabs.forEach(tab => {
         tab.addEventListener("click", () => {
-          tabs.forEach(t => t.classList.remove("active"));
-          document.querySelectorAll(".sidebar-tab-content").forEach(c => c.classList.remove("active"));
-
-          tab.classList.add("active");
-          const targetId = tab.dataset.tab;
-          const targetContent = document.getElementById(targetId);
-          if (targetContent) {
-            targetContent.classList.add("active");
-          }
-          if (targetId === "tab-summary") {
-            this.updateSummaryTable();
-          }
+          this.switchTab(tab.dataset.tab);
         });
       });
     },
 
     bindTopbarControls() {
-      // Selector de fondo del lienzo (Negro / Transparente)
       const canvasBgSelect = document.getElementById("canvas-bg-select");
       if (canvasBgSelect) {
         canvasBgSelect.value = state.settings.canvasBg;
@@ -1247,7 +1743,6 @@
         });
       }
 
-      // Modo de Lienzo (Auto / Manual)
       const modeSelect = document.getElementById("canvas-mode-select");
       const manualDims = document.getElementById("manual-canvas-dimensions");
       const inputW = document.getElementById("canvas-width-input");
@@ -1261,11 +1756,7 @@
 
       modeSelect.addEventListener("change", (e) => {
         state.canvas.mode = e.target.value;
-        if (state.canvas.mode === "manual") {
-          manualDims.classList.remove("hidden");
-        } else {
-          manualDims.classList.add("hidden");
-        }
+        manualDims.classList.toggle("hidden", state.canvas.mode !== "manual");
         RenderEngine.render();
         Persistence.saveAuto();
       });
@@ -1299,7 +1790,6 @@
         Persistence.saveAuto();
       });
 
-      // HUD Zoom
       document.getElementById("btn-zoom-in").addEventListener("click", () => ViewportEngine.zoomBy(1));
       document.getElementById("btn-zoom-out").addEventListener("click", () => ViewportEngine.zoomBy(-1));
       document.getElementById("btn-zoom-100").addEventListener("click", () => ViewportEngine.zoom100());
@@ -1307,7 +1797,6 @@
     },
 
     bindAlignmentToolbar() {
-      // Alinear
       document.getElementById("btn-align-left").addEventListener("click", () => AlignmentEngine.align("left"));
       document.getElementById("btn-align-center-h").addEventListener("click", () => AlignmentEngine.align("center-h"));
       document.getElementById("btn-align-right").addEventListener("click", () => AlignmentEngine.align("right"));
@@ -1315,12 +1804,10 @@
       document.getElementById("btn-align-center-v").addEventListener("click", () => AlignmentEngine.align("center-v"));
       document.getElementById("btn-align-bottom").addEventListener("click", () => AlignmentEngine.align("bottom"));
 
-      // Centrar en lienzo
       document.getElementById("btn-center-h").addEventListener("click", () => AlignmentEngine.centerInCanvas("h"));
       document.getElementById("btn-center-v").addEventListener("click", () => AlignmentEngine.centerInCanvas("v"));
       document.getElementById("btn-center-both").addEventListener("click", () => AlignmentEngine.centerInCanvas("both"));
 
-      // Distribuir
       const spacingInput = document.getElementById("distribute-spacing-input");
       document.getElementById("btn-distribute-h").addEventListener("click", () => {
         AlignmentEngine.distribute("h", spacingInput.value);
@@ -1339,7 +1826,9 @@
       select.addEventListener("change", (e) => {
         state.selectedScreenId = e.target.value;
         state.selectedScreenIds = e.target.value ? [e.target.value] : [];
+        state.selectedLayerId = null;
         this.updateActiveScreenForm();
+        this.updateActiveLayerForm();
         this.updateSelectionHint();
         RenderEngine.render();
       });
@@ -1347,6 +1836,587 @@
       addBtn.addEventListener("click", () => this.addNewScreen());
       dupBtn.addEventListener("click", () => this.duplicateSelectedScreen());
       delBtn.addEventListener("click", () => this.deleteSelectedScreen());
+    },
+
+    /* =========================================================================
+     * GESTIÓN DE CAPAS (UI)
+     * ========================================================================= */
+    bindLayersControls() {
+      // Botones de creación rápida
+      document.getElementById("btn-add-layer-text").addEventListener("click", () => LayersEngine.createLayer("text"));
+      document.getElementById("btn-add-layer-rect").addEventListener("click", () => LayersEngine.createLayer("rect"));
+      document.getElementById("btn-add-layer-circle").addEventListener("click", () => LayersEngine.createLayer("circle"));
+      document.getElementById("btn-add-layer-line").addEventListener("click", () => LayersEngine.createLayer("line"));
+      document.getElementById("btn-add-layer-gradient").addEventListener("click", () => LayersEngine.createLayer("gradient"));
+
+      // Ordenación y operaciones de capa
+      document.getElementById("btn-layer-bring-front").addEventListener("click", () => {
+        if (state.selectedLayerId) LayersEngine.moveOrder(state.selectedLayerId, "front");
+      });
+      document.getElementById("btn-layer-move-up").addEventListener("click", () => {
+        if (state.selectedLayerId) LayersEngine.moveOrder(state.selectedLayerId, "up");
+      });
+      document.getElementById("btn-layer-move-down").addEventListener("click", () => {
+        if (state.selectedLayerId) LayersEngine.moveOrder(state.selectedLayerId, "down");
+      });
+      document.getElementById("btn-layer-send-back").addEventListener("click", () => {
+        if (state.selectedLayerId) LayersEngine.moveOrder(state.selectedLayerId, "back");
+      });
+      document.getElementById("btn-layer-duplicate").addEventListener("click", () => {
+        if (state.selectedLayerId) LayersEngine.duplicateLayer(state.selectedLayerId);
+      });
+      document.getElementById("btn-layer-delete").addEventListener("click", () => {
+        if (state.selectedLayerId) LayersEngine.deleteLayer(state.selectedLayerId);
+      });
+
+      // Carga de tipografía personalizada (.ttf, .otf, .woff2)
+      const inputCustomFont = document.getElementById("input-custom-font");
+      if (inputCustomFont) {
+        inputCustomFont.addEventListener("change", (e) => {
+          this.handleLoadCustomFont(e.target.files[0]);
+          e.target.value = "";
+        });
+      }
+    },
+
+    async handleLoadCustomFont(file) {
+      if (!file) return;
+
+      const rawName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const fontName = `UserFont_${rawName}`;
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const dataUrl = e.target.result;
+        try {
+          const fontFace = new FontFace(fontName, `url(${dataUrl})`);
+          await fontFace.load();
+          document.fonts.add(fontFace);
+
+          // Guardar en estado para persistencia en JSON
+          state.customFonts = state.customFonts.filter(f => f.name !== fontName);
+          state.customFonts.push({ name: fontName, displayName: rawName, dataUrl });
+
+          this.updateFontTagsList();
+          this.updateActiveLayerForm();
+          alert(`Tipografía "${rawName}" cargada correctamente.`);
+          Persistence.saveAuto();
+        } catch (err) {
+          alert(`Error al registrar la tipografía: ${err.message}`);
+        }
+      };
+      reader.readAsDataURL(file);
+    },
+
+    updateFontTagsList() {
+      const container = document.getElementById("custom-fonts-list");
+      if (!container) return;
+
+      container.innerHTML = "";
+      state.customFonts.forEach((f, idx) => {
+        const tag = document.createElement("span");
+        tag.className = "font-tag";
+        tag.innerHTML = `
+          <span>${f.displayName || f.name}</span>
+          <button class="location-tag-remove" data-idx="${idx}" title="Quitar tipografía">×</button>
+        `;
+        container.appendChild(tag);
+      });
+
+      container.querySelectorAll(".location-tag-remove").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          const idx = parseInt(e.target.dataset.idx, 10);
+          state.customFonts.splice(idx, 1);
+          this.updateFontTagsList();
+          this.updateActiveLayerForm();
+          Persistence.saveAuto();
+        });
+      });
+    },
+
+    updateLayersList() {
+      const container = document.getElementById("layers-list");
+      const badge = document.getElementById("layers-count-badge");
+      if (!container) return;
+
+      container.innerHTML = "";
+      if (badge) badge.textContent = state.layers.length;
+
+      if (state.layers.length === 0) {
+        container.innerHTML = `
+          <div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 11px;">
+            Sin capas añadidas. Usa los botones superiores.
+          </div>
+        `;
+        return;
+      }
+
+      // Mostrar capas de arriba hacia abajo (orden visual z-index invertido)
+      for (let i = state.layers.length - 1; i >= 0; i--) {
+        const layer = state.layers[i];
+        const isSelected = layer.id === state.selectedLayerId;
+
+        const row = document.createElement("div");
+        row.className = `layer-item ${isSelected ? "active" : ""}`;
+
+        row.innerHTML = `
+          <button class="layer-item-btn ${layer.visible ? "" : "inactive"}" data-action="vis" data-id="${layer.id}" title="Mostrar/Ocultar">
+            ${layer.visible ? "Ver" : "Oculto"}
+          </button>
+          <button class="layer-item-btn ${layer.locked ? "" : "inactive"}" data-action="lock" data-id="${layer.id}" title="Bloquear/Desbloquear">
+            ${layer.locked ? "Bloq" : "Libre"}
+          </button>
+          <span class="layer-type-tag">${layer.type}</span>
+          <span class="layer-name-text">${layer.name}</span>
+        `;
+
+        row.addEventListener("click", (e) => {
+          if (e.target.closest("button")) return;
+          state.selectedLayerId = layer.id;
+          state.selectedScreenIds = [];
+          state.selectedScreenId = null;
+          this.updateLayersList();
+          this.updateActiveLayerForm();
+          this.updateActiveScreenForm();
+          this.updateSelectionHint();
+          RenderEngine.render();
+        });
+
+        const visBtn = row.querySelector('[data-action="vis"]');
+        const lockBtn = row.querySelector('[data-action="lock"]');
+
+        visBtn.addEventListener("click", () => LayersEngine.toggleVisibility(layer.id));
+        lockBtn.addEventListener("click", () => LayersEngine.toggleLock(layer.id));
+
+        container.appendChild(row);
+      }
+    },
+
+    updateActiveLayerForm() {
+      const formContainer = document.getElementById("layer-editor-form");
+      if (!formContainer) return;
+
+      const layer = state.layers.find(l => l.id === state.selectedLayerId);
+      if (!layer) {
+        formContainer.innerHTML = `
+          <div class="editor-card" style="text-align: center; padding: 20px 14px;">
+            <p style="color: var(--text-muted); font-size: 11px;">Selecciona una capa en la lista o en el lienzo para editar sus propiedades.</p>
+          </div>
+        `;
+        return;
+      }
+
+      // Opciones de tipografía (Inter + fuentes cargadas)
+      let fontOptions = `<option value="${FONT_MAIN}" ${layer.fontFamily === FONT_MAIN ? "selected" : ""}>Inter (Predeterminada)</option>`;
+      state.customFonts.forEach(cf => {
+        fontOptions += `<option value="${cf.name}" ${layer.fontFamily === cf.name ? "selected" : ""}>${cf.displayName || cf.name} (Cargada)</option>`;
+      });
+
+      // Campos específicos según tipo de capa
+      let specificFields = "";
+
+      if (layer.type === "text") {
+        specificFields = `
+          <div class="editor-card">
+            <div class="editor-card-title"><span>Texto & Tipografía</span></div>
+            <div class="form-group">
+              <label for="layer-text-content">Contenido</label>
+              <textarea id="layer-text-content" class="form-textarea" rows="2">${layer.text || ""}</textarea>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="layer-text-font">Tipografía</label>
+                <select id="layer-text-font" class="form-select">${fontOptions}</select>
+              </div>
+              <div class="form-group">
+                <label for="layer-text-size"><span>Tamaño</span><span class="label-unit">px</span></label>
+                <input type="number" id="layer-text-size" class="form-input" min="6" max="1000" step="1" value="${layer.fontSize || 36}">
+              </div>
+            </div>
+            <div class="form-grid-3">
+              <div class="form-group">
+                <label for="layer-text-weight">Peso</label>
+                <select id="layer-text-weight" class="form-select">
+                  <option value="200" ${layer.fontWeight === "200" ? "selected" : ""}>200</option>
+                  <option value="300" ${layer.fontWeight === "300" ? "selected" : ""}>300</option>
+                  <option value="400" ${layer.fontWeight === "400" ? "selected" : ""}>400</option>
+                  <option value="500" ${layer.fontWeight === "500" ? "selected" : ""}>500</option>
+                  <option value="600" ${layer.fontWeight === "600" ? "selected" : ""}>600</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="layer-text-align">Alineación</label>
+                <select id="layer-text-align" class="form-select">
+                  <option value="left" ${layer.textAlign === "left" ? "selected" : ""}>Izq</option>
+                  <option value="center" ${layer.textAlign === "center" ? "selected" : ""}>Centro</option>
+                  <option value="right" ${layer.textAlign === "right" ? "selected" : ""}>Der</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Color</label>
+                <div class="color-picker-pair">
+                  <input type="color" id="layer-fill-picker" class="color-input-native" value="${layer.fillColor || '#ffffff'}">
+                  <input type="text" id="layer-fill-hex" class="color-input-hex" value="${layer.fillColor || '#ffffff'}" maxlength="7">
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (layer.type === "rect" || layer.type === "circle") {
+        specificFields = `
+          <div class="editor-card">
+            <div class="editor-card-title"><span>Relleno y Borde</span></div>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label>Color Relleno</label>
+                <div class="color-picker-pair">
+                  <input type="color" id="layer-fill-picker" class="color-input-native" value="${layer.fillColor && layer.fillColor !== 'transparent' ? layer.fillColor : '#ffffff'}">
+                  <input type="text" id="layer-fill-hex" class="color-input-hex" value="${layer.fillColor || '#ffffff'}" maxlength="7">
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Color Borde</label>
+                <div class="color-picker-pair">
+                  <input type="color" id="layer-stroke-picker" class="color-input-native" value="${layer.strokeColor || '#333333'}">
+                  <input type="text" id="layer-stroke-hex" class="color-input-hex" value="${layer.strokeColor || '#333333'}" maxlength="7">
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="layer-stroke-width"><span>Grosor de Borde</span><span class="label-unit">px (0 = sin borde)</span></label>
+              <input type="number" id="layer-stroke-width" class="form-input" min="0" max="100" step="1" value="${layer.strokeWidth || 0}">
+            </div>
+          </div>
+        `;
+      } else if (layer.type === "line") {
+        specificFields = `
+          <div class="editor-card">
+            <div class="editor-card-title"><span>Propiedades de Línea</span></div>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label>Color</label>
+                <div class="color-picker-pair">
+                  <input type="color" id="layer-stroke-picker" class="color-input-native" value="${layer.strokeColor || '#ffffff'}">
+                  <input type="text" id="layer-stroke-hex" class="color-input-hex" value="${layer.strokeColor || '#ffffff'}" maxlength="7">
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="layer-stroke-width"><span>Grosor</span><span class="label-unit">px</span></label>
+                <input type="number" id="layer-stroke-width" class="form-input" min="1" max="100" step="1" value="${layer.strokeWidth || 2}">
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (layer.type === "gradient") {
+        const stopsHtml = (layer.gradientStops || []).map((st, sIdx) => `
+          <div class="gradient-stop-row" data-sidx="${sIdx}">
+            <input type="color" class="color-input-native stop-color-picker" value="${st.color}">
+            <input type="text" class="color-input-hex stop-color-hex" value="${st.color}" maxlength="7">
+            <input type="number" class="form-input-sm gradient-stop-offset" min="0" max="100" step="1" value="${Math.round(st.offset * 100)}" title="Posición 0-100%"> %
+            ${layer.gradientStops.length > 2 ? `<button class="btn-remove-stop" title="Quitar color">×</button>` : ""}
+          </div>
+        `).join("");
+
+        specificFields = `
+          <div class="editor-card">
+            <div class="editor-card-title"><span>Configuración de Degradado</span></div>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="layer-grad-type">Tipo</label>
+                <select id="layer-grad-type" class="form-select">
+                  <option value="linear" ${layer.gradientType === "linear" ? "selected" : ""}>Lineal</option>
+                  <option value="radial" ${layer.gradientType === "radial" ? "selected" : ""}>Radial</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="layer-grad-angle"><span>Ángulo (Lineal)</span><span class="label-unit">grados</span></label>
+                <input type="number" id="layer-grad-angle" class="form-input" min="0" max="360" step="1" value="${layer.gradientAngle || 90}">
+              </div>
+            </div>
+
+            <div class="gradient-stops-container">
+              <label>Colores del Degradado:</label>
+              <div class="gradient-stops-list" id="gradient-stops-list">${stopsHtml}</div>
+              <button id="btn-add-gradient-stop" class="btn btn-secondary btn-sm" style="margin-top: 4px;">+ Agregar Color</button>
+            </div>
+          </div>
+        `;
+      }
+
+      formContainer.innerHTML = `
+        <!-- Identificación y Nombre -->
+        <div class="editor-card">
+          <div class="editor-card-title">
+            <span>Capa: ${layer.type.toUpperCase()}</span>
+            <span class="badge">${layer.locked ? "Bloqueada" : "Editable"}</span>
+          </div>
+          <div class="form-group">
+            <label for="layer-name-input">Nombre</label>
+            <input type="text" id="layer-name-input" class="form-input" value="${layer.name}">
+          </div>
+        </div>
+
+        <!-- Transformación: Posición, Tamaño, Rotación, Opacidad -->
+        <div class="editor-card">
+          <div class="editor-card-title"><span>Posición & Transformación</span></div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="layer-pos-x"><span>X</span><span class="label-unit">px</span></label>
+              <input type="number" id="layer-pos-x" class="form-input" step="1" value="${layer.x}">
+            </div>
+            <div class="form-group">
+              <label for="layer-pos-y"><span>Y</span><span class="label-unit">px</span></label>
+              <input type="number" id="layer-pos-y" class="form-input" step="1" value="${layer.y}">
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="layer-width"><span>Ancho (W)</span><span class="label-unit">px</span></label>
+              <input type="number" id="layer-width" class="form-input" min="2" step="1" value="${layer.width}">
+            </div>
+            <div class="form-group">
+              <label for="layer-height"><span>Alto (H)</span><span class="label-unit">px</span></label>
+              <input type="number" id="layer-height" class="form-input" min="2" step="1" value="${layer.height}">
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="layer-rotation"><span>Rotación</span><span class="label-unit">grados</span></label>
+              <input type="number" id="layer-rotation" class="form-input" min="0" max="360" step="1" value="${layer.rotation || 0}">
+            </div>
+            <div class="form-group">
+              <label for="layer-opacity"><span>Opacidad</span><span class="label-unit">%</span></label>
+              <input type="number" id="layer-opacity" class="form-input" min="0" max="100" step="1" value="${Math.round((layer.opacity !== undefined ? layer.opacity : 1) * 100)}">
+            </div>
+          </div>
+        </div>
+
+        ${specificFields}
+      `;
+
+      this.attachLayerFormEvents(layer);
+    },
+
+    syncActiveLayerFormValues(layer) {
+      const getEl = id => document.getElementById(id);
+
+      const xEl = getEl("layer-pos-x");
+      const yEl = getEl("layer-pos-y");
+      const wEl = getEl("layer-width");
+      const hEl = getEl("layer-height");
+      const rotEl = getEl("layer-rotation");
+      const opEl = getEl("layer-opacity");
+
+      if (xEl && document.activeElement !== xEl) xEl.value = layer.x;
+      if (yEl && document.activeElement !== yEl) yEl.value = layer.y;
+      if (wEl && document.activeElement !== wEl) wEl.value = layer.width;
+      if (hEl && document.activeElement !== hEl) hEl.value = layer.height;
+      if (rotEl && document.activeElement !== rotEl) rotEl.value = layer.rotation || 0;
+      if (opEl && document.activeElement !== opEl) opEl.value = Math.round((layer.opacity !== undefined ? layer.opacity : 1) * 100);
+
+      this.updateSelectionHint();
+      Persistence.saveAuto();
+    },
+
+    attachLayerFormEvents(layer) {
+      const getEl = id => document.getElementById(id);
+
+      // Nombre
+      const nameEl = getEl("layer-name-input");
+      if (nameEl) {
+        nameEl.addEventListener("input", (e) => {
+          layer.name = e.target.value;
+          this.updateLayersList();
+          Persistence.saveAuto();
+        });
+      }
+
+      // X, Y
+      getEl("layer-pos-x").addEventListener("input", (e) => {
+        layer.x = parseInt(e.target.value, 10) || 0;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      getEl("layer-pos-y").addEventListener("input", (e) => {
+        layer.y = parseInt(e.target.value, 10) || 0;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      // Width, Height
+      getEl("layer-width").addEventListener("input", (e) => {
+        layer.width = Math.max(2, parseInt(e.target.value, 10) || 10);
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      getEl("layer-height").addEventListener("input", (e) => {
+        layer.height = Math.max(2, parseInt(e.target.value, 10) || 10);
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      // Rotación
+      getEl("layer-rotation").addEventListener("input", (e) => {
+        layer.rotation = parseInt(e.target.value, 10) || 0;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      // Opacidad
+      getEl("layer-opacity").addEventListener("input", (e) => {
+        const val = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 100));
+        layer.opacity = val / 100;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      // Relleno
+      const fillPicker = getEl("layer-fill-picker");
+      const fillHex = getEl("layer-fill-hex");
+      if (fillPicker && fillHex) {
+        fillPicker.addEventListener("input", (e) => {
+          layer.fillColor = e.target.value;
+          fillHex.value = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        fillHex.addEventListener("change", (e) => {
+          const val = e.target.value.trim();
+          if (/^#[0-9A-Fa-f]{6}$/.test(val) || val === "transparent") {
+            layer.fillColor = val;
+            fillPicker.value = val;
+            RenderEngine.render();
+            Persistence.saveAuto();
+          }
+        });
+      }
+
+      // Borde
+      const strokePicker = getEl("layer-stroke-picker");
+      const strokeHex = getEl("layer-stroke-hex");
+      const strokeWidthEl = getEl("layer-stroke-width");
+      if (strokePicker && strokeHex) {
+        strokePicker.addEventListener("input", (e) => {
+          layer.strokeColor = e.target.value;
+          strokeHex.value = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        strokeHex.addEventListener("change", (e) => {
+          const val = e.target.value.trim();
+          if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+            layer.strokeColor = val;
+            strokePicker.value = val;
+            RenderEngine.render();
+            Persistence.saveAuto();
+          }
+        });
+      }
+      if (strokeWidthEl) {
+        strokeWidthEl.addEventListener("input", (e) => {
+          layer.strokeWidth = Math.max(0, parseInt(e.target.value, 10) || 0);
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+      }
+
+      // Campos de Texto
+      if (layer.type === "text") {
+        getEl("layer-text-content").addEventListener("input", (e) => {
+          layer.text = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        getEl("layer-text-font").addEventListener("change", (e) => {
+          layer.fontFamily = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        getEl("layer-text-size").addEventListener("input", (e) => {
+          layer.fontSize = Math.max(6, parseInt(e.target.value, 10) || 24);
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        getEl("layer-text-weight").addEventListener("change", (e) => {
+          layer.fontWeight = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        getEl("layer-text-align").addEventListener("change", (e) => {
+          layer.textAlign = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+      }
+
+      // Campos de Degradado
+      if (layer.type === "gradient") {
+        getEl("layer-grad-type").addEventListener("change", (e) => {
+          layer.gradientType = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        getEl("layer-grad-angle").addEventListener("input", (e) => {
+          layer.gradientAngle = parseInt(e.target.value, 10) || 0;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+
+        // Configurar paradas de color de degradado
+        const stopsList = getEl("gradient-stops-list");
+        if (stopsList) {
+          stopsList.querySelectorAll(".gradient-stop-row").forEach(row => {
+            const sIdx = parseInt(row.dataset.sidx, 10);
+            const picker = row.querySelector(".stop-color-picker");
+            const hex = row.querySelector(".stop-color-hex");
+            const offsetInput = row.querySelector(".gradient-stop-offset");
+            const btnRemove = row.querySelector(".btn-remove-stop");
+
+            picker.addEventListener("input", (e) => {
+              layer.gradientStops[sIdx].color = e.target.value;
+              hex.value = e.target.value;
+              RenderEngine.render();
+              Persistence.saveAuto();
+            });
+
+            hex.addEventListener("change", (e) => {
+              if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+                layer.gradientStops[sIdx].color = e.target.value;
+                picker.value = e.target.value;
+                RenderEngine.render();
+                Persistence.saveAuto();
+              }
+            });
+
+            offsetInput.addEventListener("input", (e) => {
+              const val = Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0));
+              layer.gradientStops[sIdx].offset = val / 100;
+              RenderEngine.render();
+              Persistence.saveAuto();
+            });
+
+            if (btnRemove) {
+              btnRemove.addEventListener("click", () => {
+                layer.gradientStops.splice(sIdx, 1);
+                this.updateActiveLayerForm();
+                RenderEngine.render();
+                Persistence.saveAuto();
+              });
+            }
+          });
+        }
+
+        const btnAddStop = getEl("btn-add-gradient-stop");
+        if (btnAddStop) {
+          btnAddStop.addEventListener("click", () => {
+            layer.gradientStops.push({ offset: 0.5, color: "#777777" });
+            layer.gradientStops.sort((a, b) => a.offset - b.offset);
+            this.updateActiveLayerForm();
+            RenderEngine.render();
+            Persistence.saveAuto();
+          });
+        }
+      }
     },
 
     bindSettingsControls() {
@@ -1368,7 +2438,6 @@
         Persistence.saveAuto();
       });
 
-      // Ubicaciones
       const btnAddLoc = document.getElementById("btn-add-location");
       const inputLoc = document.getElementById("input-new-location");
 
@@ -1388,15 +2457,19 @@
         if (e.key === "Enter") handleAddLoc();
       });
 
-      // Restaurar layout
       document.getElementById("btn-reset-layout").addEventListener("click", () => {
         if (confirm("¿Restaurar el layout inicial de cruz desplegada?")) {
           state.screens = JSON.parse(JSON.stringify(DEFAULT_INITIAL_SCREENS));
           state.screens.forEach(s => CalcEngine.recalculate(s));
           state.selectedScreenId = state.screens[0].id;
           state.selectedScreenIds = [state.screens[0].id];
+          state.layers = [];
+          state.selectedLayerId = null;
+
           this.updateScreensSelector();
           this.updateActiveScreenForm();
+          this.updateLayersList();
+          this.updateActiveLayerForm();
           this.updateSummaryTable();
           this.updateSelectionHint();
           RenderEngine.render();
@@ -1405,14 +2478,18 @@
         }
       });
 
-      // Limpiar proyecto
       document.getElementById("btn-clear-project").addEventListener("click", () => {
-        if (confirm("¿Borrar todas las pantallas del lienzo?")) {
+        if (confirm("¿Borrar todas las pantallas y capas del lienzo?")) {
           state.screens = [];
           state.selectedScreenId = null;
           state.selectedScreenIds = [];
+          state.layers = [];
+          state.selectedLayerId = null;
+
           this.updateScreensSelector();
           this.updateActiveScreenForm();
+          this.updateLayersList();
+          this.updateActiveLayerForm();
           this.updateSummaryTable();
           this.updateSelectionHint();
           RenderEngine.render();
@@ -1485,9 +2562,9 @@
       const screen = state.screens.find(s => s.id === state.selectedScreenId);
       if (!screen) {
         formContainer.innerHTML = `
-          <div class="editor-card" style="text-align: center; padding: 24px 16px;">
-            <p style="color: var(--text-muted); margin-bottom: 12px;">No hay pantallas seleccionadas o el lienzo está vacío.</p>
-            <button id="btn-add-screen-empty" class="btn btn-secondary btn-sm">Agregar Pantalla</button>
+          <div class="editor-card" style="text-align: center; padding: 20px 14px;">
+            <p style="color: var(--text-muted); font-size: 11px;">No hay pantallas seleccionadas o el lienzo está vacío.</p>
+            <button id="btn-add-screen-empty" class="btn btn-secondary btn-sm" style="margin-top: 8px;">Agregar Pantalla</button>
           </div>
         `;
         const addEmptyBtn = document.getElementById("btn-add-screen-empty");
@@ -1504,7 +2581,6 @@
         .join("");
 
       formContainer.innerHTML = `
-        <!-- Identificación -->
         <div class="editor-card">
           <div class="editor-card-title">
             <span>Identificación</span>
@@ -1513,7 +2589,7 @@
           <div class="form-grid-2">
             <div class="form-group">
               <label for="screen-label">Etiqueta</label>
-              <input type="text" id="screen-label" class="form-input" value="${screen.label}" placeholder="ej: C, i1, d1, fondo">
+              <input type="text" id="screen-label" class="form-input" value="${screen.label}">
             </div>
             <div class="form-group">
               <label for="screen-location">Ubicación</label>
@@ -1525,27 +2601,21 @@
           </div>
         </div>
 
-        <!-- Tipografía de Etiqueta (Plana, Peso, Tamaño y Color) -->
         <div class="editor-card">
-          <div class="editor-card-title">
-            <span>Etiqueta en Lienzo (Plana)</span>
-          </div>
+          <div class="editor-card-title"><span>Etiqueta en Pantalla (Plana)</span></div>
           <div class="form-grid-3">
             <div class="form-group">
-              <label for="screen-label-size">
-                <span>Tamaño</span>
-                <span class="label-unit">px (0=auto)</span>
-              </label>
+              <label for="screen-label-size"><span>Tamaño</span><span class="label-unit">px (0=auto)</span></label>
               <input type="number" id="screen-label-size" class="form-input" min="0" max="256" step="1" value="${screen.labelFontSize || 0}">
             </div>
             <div class="form-group">
               <label for="screen-label-weight">Peso</label>
               <select id="screen-label-weight" class="form-select">
-                <option value="200" ${screen.labelFontWeight === "200" ? "selected" : ""}>200 Fino</option>
-                <option value="300" ${screen.labelFontWeight === "300" || !screen.labelFontWeight ? "selected" : ""}>300 Ligero (Defecto)</option>
-                <option value="400" ${screen.labelFontWeight === "400" ? "selected" : ""}>400 Regular</option>
-                <option value="500" ${screen.labelFontWeight === "500" ? "selected" : ""}>500 Medio</option>
-                <option value="600" ${screen.labelFontWeight === "600" ? "selected" : ""}>600 Seminegrita</option>
+                <option value="200" ${screen.labelFontWeight === "200" ? "selected" : ""}>200</option>
+                <option value="300" ${screen.labelFontWeight === "300" || !screen.labelFontWeight ? "selected" : ""}>300</option>
+                <option value="400" ${screen.labelFontWeight === "400" ? "selected" : ""}>400</option>
+                <option value="500" ${screen.labelFontWeight === "500" ? "selected" : ""}>500</option>
+                <option value="600" ${screen.labelFontWeight === "600" ? "selected" : ""}>600</option>
               </select>
             </div>
             <div class="form-group">
@@ -1558,106 +2628,68 @@
           </div>
         </div>
 
-        <!-- Modo de Cálculo Fijo -->
         <div class="editor-card fixed-mode-box">
           <div class="form-group">
-            <label for="screen-fixed-mode">
-              <span>Dato Fijo (Vínculo Bidireccional)</span>
-            </label>
+            <label for="screen-fixed-mode"><span>Dato Fijo</span></label>
             <select id="screen-fixed-mode" class="form-select">
-              <option value="pitch_m" ${screen.fixedMode === "pitch_m" ? "selected" : ""}>Fijo Pitch + Metros (Calcula Píxeles)</option>
-              <option value="pitch_px" ${screen.fixedMode === "pitch_px" ? "selected" : ""}>Fijo Pitch + Píxeles (Calcula Metros)</option>
-              <option value="m_px" ${screen.fixedMode === "m_px" ? "selected" : ""}>Fijo Metros + Píxeles (Calcula Pitch real)</option>
+              <option value="pitch_m" ${screen.fixedMode === "pitch_m" ? "selected" : ""}>Fijo Pitch + Metros (Calcula Px)</option>
+              <option value="pitch_px" ${screen.fixedMode === "pitch_px" ? "selected" : ""}>Fijo Pitch + Px (Calcula Metros)</option>
+              <option value="m_px" ${screen.fixedMode === "m_px" ? "selected" : ""}>Fijo Metros + Px (Calcula Pitch real)</option>
             </select>
           </div>
         </div>
 
-        <!-- Variables Principales: Pitch Nominal y Real, Metros y Píxeles -->
         <div class="editor-card">
-          <div class="editor-card-title">
-            <span>Dimensiones & Resolución</span>
-          </div>
-
+          <div class="editor-card-title"><span>Dimensiones & Resolución</span></div>
           <div class="form-grid-2">
             <div class="form-group">
-              <label for="screen-pitch">
-                <span>Pitch Nominal</span>
-                <span class="label-unit">mm</span>
-              </label>
+              <label for="screen-pitch"><span>Pitch Nom.</span><span class="label-unit">mm</span></label>
               <input type="number" id="screen-pitch" class="form-input" step="0.001" min="0.1" value="${screen.pitch}" ${screen.fixedMode === "m_px" ? "readonly" : ""}>
             </div>
             <div class="form-group">
-              <label>
-                <span>Pitch Real Calculado</span>
-                <span class="label-unit">mm</span>
-              </label>
+              <label><span>Pitch Real</span><span class="label-unit">mm</span></label>
               <input type="text" id="screen-pitch-real" class="form-input" value="${screen.pitchReal ? screen.pitchReal.toFixed(3) : screen.pitch.toFixed(3)} mm" readonly>
             </div>
           </div>
 
           <div class="form-grid-2">
             <div class="form-group">
-              <label for="screen-width-m">
-                <span>Ancho</span>
-                <span class="label-unit">metros</span>
-              </label>
+              <label for="screen-width-m"><span>Ancho</span><span class="label-unit">m</span></label>
               <input type="number" id="screen-width-m" class="form-input" step="0.001" min="0.01" value="${screen.widthM}" ${screen.fixedMode === "pitch_px" ? "readonly" : ""}>
             </div>
             <div class="form-group">
-              <label for="screen-height-m">
-                <span>Alto</span>
-                <span class="label-unit">metros</span>
-              </label>
+              <label for="screen-height-m"><span>Alto</span><span class="label-unit">m</span></label>
               <input type="number" id="screen-height-m" class="form-input" step="0.001" min="0.01" value="${screen.heightM}" ${screen.fixedMode === "pitch_px" ? "readonly" : ""}>
             </div>
           </div>
 
           <div class="form-grid-2">
             <div class="form-group">
-              <label for="screen-width-px">
-                <span>Ancho Total</span>
-                <span class="label-unit">píxeles enteros</span>
-              </label>
+              <label for="screen-width-px"><span>Ancho Total</span><span class="label-unit">px</span></label>
               <input type="number" id="screen-width-px" class="form-input" step="1" min="1" value="${screen.widthPx}" ${screen.fixedMode === "pitch_m" ? "readonly" : ""}>
             </div>
             <div class="form-group">
-              <label for="screen-height-px">
-                <span>Alto Total</span>
-                <span class="label-unit">píxeles enteros</span>
-              </label>
+              <label for="screen-height-px"><span>Alto Total</span><span class="label-unit">px</span></label>
               <input type="number" id="screen-height-px" class="form-input" step="1" min="1" value="${screen.heightPx}" ${screen.fixedMode === "pitch_m" ? "readonly" : ""}>
             </div>
           </div>
 
           <div id="calc-alert-box" class="calc-alert ${isExact ? "exact" : "warning"}">
             <div id="calc-alert-text">
-              ${isExact 
-                ? "Cálculo exacto: píxeles enteros y coincide con módulos." 
-                : `${warnings.join("<br>")}`
-              }
+              ${isExact ? "Cálculo exacto: píxeles enteros y coincide con módulos." : `${warnings.join("<br>")}`}
             </div>
           </div>
         </div>
 
-        <!-- Módulos de Gabinete y Px por Módulo Manual -->
         <div class="editor-card">
-          <div class="editor-card-title">
-            <span>Módulos de Gabinete</span>
-          </div>
-
+          <div class="editor-card-title"><span>Módulos de Gabinete</span></div>
           <div class="form-grid-2">
             <div class="form-group">
-              <label for="screen-mod-w">
-                <span>Gabinete Ancho</span>
-                <span class="label-unit">m</span>
-              </label>
+              <label for="screen-mod-w"><span>Gabinete Ancho</span><span class="label-unit">m</span></label>
               <input type="number" id="screen-mod-w" class="form-input" step="0.01" min="0.01" value="${screen.moduleWidthM}">
             </div>
             <div class="form-group">
-              <label for="screen-mod-h">
-                <span>Gabinete Alto</span>
-                <span class="label-unit">m</span>
-              </label>
+              <label for="screen-mod-h"><span>Gabinete Alto</span><span class="label-unit">m</span></label>
               <input type="number" id="screen-mod-h" class="form-input" step="0.01" min="0.01" value="${screen.moduleHeightM}">
             </div>
           </div>
@@ -1675,31 +2707,20 @@
 
           <div class="form-grid-2">
             <div class="form-group">
-              <label for="screen-mod-px-w">
-                <span>Px / Módulo (W)</span>
-                <span class="label-unit">prioridad manual</span>
-              </label>
+              <label for="screen-mod-px-w"><span>Px / Módulo (W)</span><span class="label-unit">manual</span></label>
               <input type="number" id="screen-mod-px-w" class="form-input" step="1" min="1" value="${screen.modPxW}">
             </div>
             <div class="form-group">
-              <label for="screen-mod-px-h">
-                <span>Px / Módulo (H)</span>
-                <span class="label-unit">prioridad manual</span>
-              </label>
+              <label for="screen-mod-px-h"><span>Px / Módulo (H)</span><span class="label-unit">manual</span></label>
               <input type="number" id="screen-mod-px-h" class="form-input" step="1" min="1" value="${screen.modPxH}">
             </div>
           </div>
 
-          <button id="btn-sync-modules" class="btn btn-secondary btn-sm" title="Ajustar metros para que coincidan con los módulos">
-            Ajustar tamaño a estos módulos
-          </button>
+          <button id="btn-sync-modules" class="btn btn-secondary btn-sm">Ajustar tamaño a estos módulos</button>
         </div>
 
-        <!-- Colores del Damero -->
         <div class="editor-card">
-          <div class="editor-card-title">
-            <span>Colores del Damero</span>
-          </div>
+          <div class="editor-card-title"><span>Colores del Damero</span></div>
           <div class="form-grid-2">
             <div class="form-group">
               <label>Color 1</label>
@@ -1718,11 +2739,8 @@
           </div>
         </div>
 
-        <!-- Posición en Lienzo (Editable por teclado o número) -->
         <div class="editor-card">
-          <div class="editor-card-title">
-            <span>Posición en Lienzo (px)</span>
-          </div>
+          <div class="editor-card-title"><span>Posición en Lienzo (px)</span></div>
           <div class="form-grid-2">
             <div class="form-group">
               <label for="screen-pos-x">X</label>
@@ -1736,51 +2754,10 @@
         </div>
       `;
 
-      this.attachFormEvents(screen);
+      this.attachScreenFormEvents(screen);
     },
 
-    syncFormValues(screen) {
-      const getEl = id => document.getElementById(id);
-      const { warnings, isExact } = CalcEngine.recalculate(screen);
-
-      const pitchEl = getEl("screen-pitch");
-      const pitchRealEl = getEl("screen-pitch-real");
-      const wmEl = getEl("screen-width-m");
-      const hmEl = getEl("screen-height-m");
-      const wpxEl = getEl("screen-width-px");
-      const hpxEl = getEl("screen-height-px");
-      const colsEl = getEl("screen-cols");
-      const rowsEl = getEl("screen-rows");
-      const modPxWEl = getEl("screen-mod-px-w");
-      const modPxHEl = getEl("screen-mod-px-h");
-      const alertBox = getEl("calc-alert-box");
-      const alertText = getEl("calc-alert-text");
-
-      if (pitchEl && document.activeElement !== pitchEl) pitchEl.value = screen.pitch;
-      if (pitchRealEl) pitchRealEl.value = `${screen.pitchReal ? screen.pitchReal.toFixed(3) : screen.pitch.toFixed(3)} mm`;
-      if (wmEl && document.activeElement !== wmEl) wmEl.value = screen.widthM;
-      if (hmEl && document.activeElement !== hmEl) hmEl.value = screen.heightM;
-      if (wpxEl && document.activeElement !== wpxEl) wpxEl.value = screen.widthPx;
-      if (hpxEl && document.activeElement !== hpxEl) hpxEl.value = screen.heightPx;
-      if (colsEl && document.activeElement !== colsEl) colsEl.value = screen.cols;
-      if (rowsEl && document.activeElement !== rowsEl) rowsEl.value = screen.rows;
-      if (modPxWEl && document.activeElement !== modPxWEl) modPxWEl.value = screen.modPxW;
-      if (modPxHEl && document.activeElement !== modPxHEl) modPxHEl.value = screen.modPxH;
-
-      if (alertBox && alertText) {
-        alertBox.className = `calc-alert ${isExact ? "exact" : "warning"}`;
-        alertText.innerHTML = isExact 
-          ? "Cálculo exacto: píxeles enteros y coincide con módulos." 
-          : `${warnings.join("<br>")}`;
-      }
-
-      this.updateScreensSelector();
-      this.updateSummaryTable();
-      RenderEngine.render();
-      Persistence.saveAuto();
-    },
-
-    attachFormEvents(screen) {
+    attachScreenFormEvents(screen) {
       const getEl = id => document.getElementById(id);
 
       getEl("screen-label").addEventListener("input", (e) => {
@@ -1812,7 +2789,6 @@
         Persistence.saveAuto();
       });
 
-      // Tipografía de etiqueta
       getEl("screen-label-size").addEventListener("input", (e) => {
         screen.labelFontSize = Math.max(0, parseInt(e.target.value, 10) || 0);
         RenderEngine.render();
@@ -1855,37 +2831,37 @@
 
       getEl("screen-pitch").addEventListener("input", (e) => {
         screen.pitch = parseFloat(e.target.value) || 2.5;
-        this.syncFormValues(screen);
+        this.syncScreenFormValues(screen);
       });
 
       getEl("screen-width-m").addEventListener("input", (e) => {
         screen.widthM = parseFloat(e.target.value) || 1.0;
-        this.syncFormValues(screen);
+        this.syncScreenFormValues(screen);
       });
 
       getEl("screen-height-m").addEventListener("input", (e) => {
         screen.heightM = parseFloat(e.target.value) || 1.0;
-        this.syncFormValues(screen);
+        this.syncScreenFormValues(screen);
       });
 
       getEl("screen-width-px").addEventListener("input", (e) => {
         screen.widthPx = parseInt(e.target.value, 10) || 100;
-        this.syncFormValues(screen);
+        this.syncScreenFormValues(screen);
       });
 
       getEl("screen-height-px").addEventListener("input", (e) => {
         screen.heightPx = parseInt(e.target.value, 10) || 100;
-        this.syncFormValues(screen);
+        this.syncScreenFormValues(screen);
       });
 
       getEl("screen-mod-w").addEventListener("input", (e) => {
         screen.moduleWidthM = parseFloat(e.target.value) || 0.50;
-        this.syncFormValues(screen);
+        this.syncScreenFormValues(screen);
       });
 
       getEl("screen-mod-h").addEventListener("input", (e) => {
         screen.moduleHeightM = parseFloat(e.target.value) || 1.00;
-        this.syncFormValues(screen);
+        this.syncScreenFormValues(screen);
       });
 
       const btnSync = getEl("btn-sync-modules");
@@ -1893,25 +2869,23 @@
         const c = parseInt(getEl("screen-cols").value, 10) || 1;
         const r = parseInt(getEl("screen-rows").value, 10) || 1;
         CalcEngine.setModulesCount(screen, c, r);
-        this.syncFormValues(screen);
+        this.syncScreenFormValues(screen);
       };
 
       btnSync.addEventListener("click", handleSyncModules);
       getEl("screen-cols").addEventListener("change", handleSyncModules);
       getEl("screen-rows").addEventListener("change", handleSyncModules);
 
-      // Prioridad manual Px por módulo
       const handleManualModPx = () => {
         const pw = parseInt(getEl("screen-mod-px-w").value, 10) || screen.modPxW;
         const ph = parseInt(getEl("screen-mod-px-h").value, 10) || screen.modPxH;
         CalcEngine.setManualModPx(screen, pw, ph);
-        this.syncFormValues(screen);
+        this.syncScreenFormValues(screen);
       };
 
       getEl("screen-mod-px-w").addEventListener("change", handleManualModPx);
       getEl("screen-mod-px-h").addEventListener("change", handleManualModPx);
 
-      // Colores Damero
       const col1Picker = getEl("screen-color1-picker");
       const col1Hex = getEl("screen-color1-hex");
       const col2Picker = getEl("screen-color2-picker");
@@ -1951,7 +2925,6 @@
         }
       });
 
-      // Posición X e Y manual
       getEl("screen-pos-x").addEventListener("input", (e) => {
         screen.x = Math.max(0, parseInt(e.target.value, 10) || 0);
         RenderEngine.render();
@@ -1963,6 +2936,47 @@
         RenderEngine.render();
         Persistence.saveAuto();
       });
+    },
+
+    syncScreenFormValues(screen) {
+      const getEl = id => document.getElementById(id);
+      const { warnings, isExact } = CalcEngine.recalculate(screen);
+
+      const pitchEl = getEl("screen-pitch");
+      const pitchRealEl = getEl("screen-pitch-real");
+      const wmEl = getEl("screen-width-m");
+      const hmEl = getEl("screen-height-m");
+      const wpxEl = getEl("screen-width-px");
+      const hpxEl = getEl("screen-height-px");
+      const colsEl = getEl("screen-cols");
+      const rowsEl = getEl("screen-rows");
+      const modPxWEl = getEl("screen-mod-px-w");
+      const modPxHEl = getEl("screen-mod-px-h");
+      const alertBox = getEl("calc-alert-box");
+      const alertText = getEl("calc-alert-text");
+
+      if (pitchEl && document.activeElement !== pitchEl) pitchEl.value = screen.pitch;
+      if (pitchRealEl) pitchRealEl.value = `${screen.pitchReal ? screen.pitchReal.toFixed(3) : screen.pitch.toFixed(3)} mm`;
+      if (wmEl && document.activeElement !== wmEl) wmEl.value = screen.widthM;
+      if (hmEl && document.activeElement !== hmEl) hmEl.value = screen.heightM;
+      if (wpxEl && document.activeElement !== wpxEl) wpxEl.value = screen.widthPx;
+      if (hpxEl && document.activeElement !== hpxEl) hpxEl.value = screen.heightPx;
+      if (colsEl && document.activeElement !== colsEl) colsEl.value = screen.cols;
+      if (rowsEl && document.activeElement !== rowsEl) rowsEl.value = screen.rows;
+      if (modPxWEl && document.activeElement !== modPxWEl) modPxWEl.value = screen.modPxW;
+      if (modPxHEl && document.activeElement !== modPxHEl) modPxHEl.value = screen.modPxH;
+
+      if (alertBox && alertText) {
+        alertBox.className = `calc-alert ${isExact ? "exact" : "warning"}`;
+        alertText.innerHTML = isExact 
+          ? "Cálculo exacto: píxeles enteros y coincide con módulos." 
+          : `${warnings.join("<br>")}`;
+      }
+
+      this.updateScreensSelector();
+      this.updateSummaryTable();
+      RenderEngine.render();
+      Persistence.saveAuto();
     },
 
     updateSummaryTable() {
@@ -2013,6 +3027,7 @@
         `;
 
         row.addEventListener("click", (e) => {
+          state.selectedLayerId = null;
           if (e.shiftKey) {
             if (state.selectedScreenIds.includes(screen.id)) {
               state.selectedScreenIds = state.selectedScreenIds.filter(id => id !== screen.id);
@@ -2028,6 +3043,7 @@
 
           this.updateScreensSelector();
           this.updateActiveScreenForm();
+          this.updateActiveLayerForm();
           this.updateSummaryTable();
           this.updateSelectionHint();
           RenderEngine.render();
@@ -2101,9 +3117,11 @@
       state.screens.push(newScreen);
       state.selectedScreenId = newId;
       state.selectedScreenIds = [newId];
+      state.selectedLayerId = null;
 
       this.updateScreensSelector();
       this.updateActiveScreenForm();
+      this.updateActiveLayerForm();
       this.updateSummaryTable();
       this.updateSelectionHint();
       RenderEngine.render();
@@ -2129,9 +3147,11 @@
 
       state.selectedScreenIds = newIds;
       state.selectedScreenId = newIds[0] || null;
+      state.selectedLayerId = null;
 
       this.updateScreensSelector();
       this.updateActiveScreenForm();
+      this.updateActiveLayerForm();
       this.updateSummaryTable();
       this.updateSelectionHint();
       RenderEngine.render();
@@ -2159,9 +3179,8 @@
 
 
   /* ===========================================================================
-   * 9. EXPORT & STORAGE (PNG 1:1 con fondo negro o transparente, JSON y LocalStorage)
-   * ===========================================================================
-   */
+   * 10. EXPORT & STORAGE (PNG 1:1, JSON con Capas/Fuentes y LocalStorage)
+   * =========================================================================== */
   const Persistence = {
     saveTimeout: null,
 
@@ -2190,7 +3209,6 @@
       const oCtx = offscreen.getContext("2d", { alpha: true });
       oCtx.imageSmoothingEnabled = false;
 
-      // Si el fondo seleccionado es transparente, limpia con clearRect para canal alfa real
       if (state.settings.canvasBg === "transparent") {
         oCtx.clearRect(0, 0, w, h);
       } else {
@@ -2198,9 +3216,16 @@
         oCtx.fillRect(0, 0, w, h);
       }
 
-      // Dibujar pantallas sin bordes de selección
+      // 1. Dibujar pantallas
       state.screens.forEach(screen => {
         RenderEngine.renderScreen(oCtx, screen, false, false);
+      });
+
+      // 2. Dibujar capas gráficas
+      state.layers.forEach(layer => {
+        if (layer.visible) {
+          RenderEngine.renderLayer(oCtx, layer, false);
+        }
       });
 
       offscreen.toBlob((blob) => {
@@ -2218,13 +3243,15 @@
 
     exportJSON() {
       const projectData = {
-        version: "1.2",
+        version: "2.0",
         appName: "LED Grid Mapper",
         timestamp: new Date().toISOString(),
         canvas: state.canvas,
         settings: state.settings,
         locations: state.locations,
-        screens: state.screens
+        screens: state.screens,
+        layers: state.layers,
+        customFonts: state.customFonts
       };
 
       const jsonStr = JSON.stringify(projectData, null, 2);
@@ -2239,33 +3266,43 @@
       URL.revokeObjectURL(url);
     },
 
-    importJSON(file) {
+    async importJSON(file) {
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
           const data = JSON.parse(e.target.result);
           if (data && Array.isArray(data.screens)) {
             state.screens = data.screens;
+            state.layers = Array.isArray(data.layers) ? data.layers : [];
+            state.customFonts = Array.isArray(data.customFonts) ? data.customFonts : [];
+
             if (data.canvas) state.canvas = { ...state.canvas, ...data.canvas };
             if (data.settings) state.settings = { ...state.settings, ...data.settings };
             if (Array.isArray(data.locations)) state.locations = data.locations;
 
+            // Restaurar tipografías registradas
+            await this.restoreCustomFonts(state.customFonts);
+
             state.screens.forEach(s => CalcEngine.recalculate(s));
             state.selectedScreenId = state.screens.length > 0 ? state.screens[0].id : null;
             state.selectedScreenIds = state.selectedScreenId ? [state.selectedScreenId] : [];
+            state.selectedLayerId = state.layers.length > 0 ? state.layers[state.layers.length - 1].id : null;
 
             UIController.renderLocationsList();
             UIController.updateScreensSelector();
             UIController.updateActiveScreenForm();
+            UIController.updateLayersList();
+            UIController.updateActiveLayerForm();
+            UIController.updateFontTagsList();
             UIController.updateSummaryTable();
             UIController.updateSelectionHint();
             RenderEngine.render();
             ViewportEngine.zoomToFit();
             this.saveAuto();
 
-            alert("Proyecto cargado exitosamente.");
+            alert("Proyecto y capas cargados exitosamente.");
           } else {
             alert("El archivo JSON no tiene un formato válido.");
           }
@@ -2276,17 +3313,34 @@
       reader.readAsText(file);
     },
 
+    async restoreCustomFonts(fontsList) {
+      if (!Array.isArray(fontsList)) return;
+      for (const f of fontsList) {
+        if (f.name && f.dataUrl) {
+          try {
+            const fontFace = new FontFace(f.name, `url(${f.dataUrl})`);
+            await fontFace.load();
+            document.fonts.add(fontFace);
+          } catch (e) {
+            console.warn("No se pudo restaurar tipografía:", f.name, e);
+          }
+        }
+      }
+    },
+
     saveAuto() {
       clearTimeout(this.saveTimeout);
       this.saveTimeout = setTimeout(() => {
         try {
           const projectData = {
-            version: "1.2",
+            version: "2.0",
             timestamp: new Date().toISOString(),
             canvas: state.canvas,
             settings: state.settings,
             locations: state.locations,
-            screens: state.screens
+            screens: state.screens,
+            layers: state.layers,
+            customFonts: state.customFonts
           };
           localStorage.setItem(STORAGE_KEY, JSON.stringify(projectData));
           
@@ -2300,22 +3354,27 @@
       }, 400);
     },
 
-    loadOnStart() {
+    async loadOnStart() {
       try {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
           const data = JSON.parse(saved);
           if (data && Array.isArray(data.screens) && data.screens.length > 0) {
             state.screens = data.screens;
+            state.layers = Array.isArray(data.layers) ? data.layers : [];
+            state.customFonts = Array.isArray(data.customFonts) ? data.customFonts : [];
+
             if (data.canvas) state.canvas = { ...state.canvas, ...data.canvas };
             if (data.settings) state.settings = { ...state.settings, ...data.settings };
             if (Array.isArray(data.locations)) state.locations = data.locations;
+
+            await this.restoreCustomFonts(state.customFonts);
             state.screens.forEach(s => CalcEngine.recalculate(s));
             return;
           }
         }
       } catch (e) {
-        console.warn("Error leyendo localStorage, cargando layout inicial:", e);
+        console.warn("Error leyendo localStorage, cargando inicial:", e);
       }
 
       state.screens = JSON.parse(JSON.stringify(DEFAULT_INITIAL_SCREENS));
@@ -2325,10 +3384,9 @@
 
 
   /* ===========================================================================
-   * 10. INITIALIZATION
-   * ===========================================================================
-   */
-  window.addEventListener("DOMContentLoaded", () => {
+   * 11. INITIALIZATION
+   * =========================================================================== */
+  window.addEventListener("DOMContentLoaded", async () => {
     const canvasEl = document.getElementById("mapping-canvas");
     const workspaceEl = document.getElementById("canvas-workspace");
     const stageEl = document.getElementById("canvas-stage");
@@ -2336,7 +3394,7 @@
     RenderEngine.init(canvasEl);
     ViewportEngine.init(workspaceEl, stageEl);
     InteractionEngine.init();
-    Persistence.init();
+    await Persistence.init();
     UIController.init();
 
     RenderEngine.render();

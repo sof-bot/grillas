@@ -26,7 +26,7 @@
       </div>
 
       <div class="landing-description">
-        <p>Herramienta técnica para cálculo bidireccional de pitch, dimensiones físicas y resolución en píxeles. Diseña distribuciones de gabinetes y genera grillas de módulos LED con renderizado exacto sin interpolación.</p>
+        <p>Herramienta técnica para cálculo bidireccional de pitch, dimensiones físicas y resolución en píxeles. Diseña distribuciones de gabinetes, capas gráficas de figuras y texto, y genera mapas técnicos exactos sin interpolación.</p>
       </div>
 
       <div class="landing-actions">
@@ -46,7 +46,7 @@
       <div class="nav-left">
         <button id="btn-show-landing" class="btn-text brand-title" title="Ver portada e información">
           <span class="brand-name">LED Grid Mapper</span>
-          <span class="brand-version">v1.0</span>
+          <span class="brand-version">v1.2</span>
         </button>
       </div>
 
@@ -133,15 +133,15 @@
 
       <div class="toolbar-section">
         <span class="toolbar-title">Distribuir:</span>
-        <button id="btn-distribute-h" class="btn btn-tool" title="Distribuir horizontalmente con la separación indicada">Distribuir H</button>
-        <button id="btn-distribute-v" class="btn btn-tool" title="Distribuir verticalmente con la separación indicada">Distribuir V</button>
+        <button id="btn-distribute-h" class="btn btn-tool" title="Distribuir horizontalmente">Distribuir H</button>
+        <button id="btn-distribute-v" class="btn btn-tool" title="Distribuir verticalmente">Distribuir V</button>
         <label for="distribute-spacing-input" class="toolbar-label">Sep:</label>
-        <input type="number" id="distribute-spacing-input" class="form-input-sm spacing-input" value="0" min="0" step="1" title="Separación en píxeles (0 para pegadas)">
+        <input type="number" id="distribute-spacing-input" class="form-input-sm spacing-input" value="0" min="0" step="1" title="Separación en píxeles">
         <span class="toolbar-unit">px</span>
       </div>
 
       <div class="toolbar-hint" id="selection-status-hint">
-        <span>0 pantallas seleccionadas</span>
+        <span>0 seleccionadas</span>
       </div>
     </section>
 
@@ -159,6 +159,10 @@
           <button class="tab-btn active" data-tab="tab-screens">
             <span>Pantallas</span>
             <span id="screens-count-badge" class="badge">4</span>
+          </button>
+          <button class="tab-btn" data-tab="tab-layers">
+            <span>Capas</span>
+            <span id="layers-count-badge" class="badge">0</span>
           </button>
           <button class="tab-btn" data-tab="tab-summary">
             <span>Tabla Resumen</span>
@@ -196,7 +200,66 @@
           </div>
         </section>
 
-        <!-- TAB 2: TABLA RESUMEN -->
+        <!-- TAB 2: CAPAS DE TEXTO Y FIGURAS (ETAPA 2) -->
+        <section id="tab-layers" class="sidebar-tab-content">
+          <div class="sidebar-section-header">
+            <div>
+              <h2 class="section-title">Capas Gráficas</h2>
+              <p class="section-desc">Texto, figuras geométricas, líneas y degradados.</p>
+            </div>
+          </div>
+
+          <!-- Botones de Creación Rápida de Capas -->
+          <div class="layer-create-toolbar">
+            <button id="btn-add-layer-text" class="btn btn-secondary btn-sm">+ Texto</button>
+            <button id="btn-add-layer-rect" class="btn btn-secondary btn-sm">+ Rectángulo</button>
+            <button id="btn-add-layer-circle" class="btn btn-secondary btn-sm">+ Círculo</button>
+            <button id="btn-add-layer-line" class="btn btn-secondary btn-sm">+ Línea</button>
+            <button id="btn-add-layer-gradient" class="btn btn-secondary btn-sm">+ Degradado</button>
+          </div>
+
+          <!-- Acciones de Ordenación de Capa Seleccionada -->
+          <div class="layer-order-toolbar">
+            <button id="btn-layer-bring-front" class="btn btn-tool" title="Traer al frente">Frente</button>
+            <button id="btn-layer-move-up" class="btn btn-tool" title="Subir nivel">Subir</button>
+            <button id="btn-layer-move-down" class="btn btn-tool" title="Bajar nivel">Bajar</button>
+            <button id="btn-layer-send-back" class="btn btn-tool" title="Enviar al fondo">Fondo</button>
+            <div class="toolbar-divider"></div>
+            <button id="btn-layer-duplicate" class="btn btn-tool" title="Duplicar capa">Duplicar</button>
+            <button id="btn-layer-delete" class="btn btn-tool" title="Eliminar capa">Eliminar</button>
+          </div>
+
+          <!-- Lista de Capas -->
+          <div class="layers-list-container" id="layers-list-container">
+            <div class="layers-list" id="layers-list">
+              <!-- Renderizado dinámicamente por app.js -->
+            </div>
+          </div>
+
+          <!-- Editor de la Capa Seleccionada -->
+          <div id="layer-editor-form" class="layer-editor">
+            <!-- Renderizado dinámicamente por app.js -->
+          </div>
+
+          <!-- Gestión de Tipografías Propias -->
+          <div class="editor-card font-upload-card">
+            <div class="editor-card-title">
+              <span>Tipografías Personalizadas</span>
+            </div>
+            <p class="small-text">Carga tipografías (.ttf, .otf, .woff2) para usarlas en capas de texto y guardarlas en el proyecto:</p>
+            <div class="custom-fonts-actions">
+              <label class="btn btn-secondary btn-sm btn-file-label">
+                Cargar fuente (.ttf, .otf, .woff2)
+                <input type="file" id="input-custom-font" accept=".ttf,.otf,.woff2" class="hidden-file-input">
+              </label>
+            </div>
+            <div id="custom-fonts-list" class="tag-list font-tag-list">
+              <!-- Fuentes cargadas -->
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 3: TABLA RESUMEN -->
         <section id="tab-summary" class="sidebar-tab-content">
           <div class="sidebar-section-header">
             <div>
@@ -231,7 +294,7 @@
           </div>
         </section>
 
-        <!-- TAB 3: AJUSTES -->
+        <!-- TAB 4: AJUSTES -->
         <section id="tab-settings" class="sidebar-tab-content">
           <div class="sidebar-section-header">
             <div>
@@ -304,7 +367,7 @@
             <button id="btn-zoom-fit" class="hud-btn hud-btn-text" title="Ajustar grilla a la ventana">Ajustar</button>
           </div>
           <div class="hud-hint">
-            <span>Shift + Clic o arrastra para selección múltiple • Flechas del teclado para mover (Shift = 10 px)</span>
+            <span>Shift + Clic para selección múltiple • Clic y arrastre para mover • Manijas para escalar y rotar</span>
           </div>
         </div>
 

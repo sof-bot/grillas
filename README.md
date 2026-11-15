@@ -55,7 +55,28 @@ Herramienta técnica web estática (HTML5 + CSS3 + Vanilla JavaScript puro, sin 
 - **Prioridad manual de px por módulo**: posibilidad de fijar la resolución de cada gabinete (ej: 128×128, 128×256 px), prevaleciendo sobre el cálculo.
 - **Avisos limpios**: solo se notifica cuando los píxeles calculados no dan enteros o la medida física no coincide con un número entero de gabinetes.
 
-### 5. Exportación y Persistencia
+### 5. Capas de Texto y Figuras (Etapa 2)
+- **Panel dedicado de Capas**:
+  - Lista de capas con visualización de visibilidad (`👁`), bloqueo (`🔓`/`🔒`), tipo de capa y nombre personalizado.
+  - Creación rápida: **+ Texto**, **+ Rectángulo**, **+ Círculo**, **+ Línea**, **+ Degradado**.
+  - Operaciones de orden z-index: **Traer al Frente**, **Subir nivel**, **Bajar nivel**, **Enviar al Fondo**.
+  - **Duplicar** y **Eliminar** capas con un solo clic.
+- **Tipos de Capa y Propiedades**:
+  - **Texto**: contenido editable, tamaño en px, selector de peso tipográfico (200 a 600), alineación (izquierda, centro, derecha), color y tipografía.
+  - **Rectángulo y Círculo**: color de relleno, color de borde y grosor en px.
+  - **Línea**: color de trazo y grosor en px.
+  - **Degradado**: modos **Lineal** y **Radial**, ángulo en grados para lineal, y gestor de paradas de color dinámicas ($\ge 2$ colores) con posición porcentual (0–100%).
+- **Transformación Interactiva en Lienzo**:
+  - Arrastre libre con clic para reposicionar.
+  - Manijas en las 4 esquinas para escalar ancho y alto proporcionalmente.
+  - Manija superior circular para rotación libre (0–360°).
+  - Campos numéricos bidireccionales en el panel: posición X/Y en px, ancho (W), alto (H), rotación en grados y opacidad (0–100%).
+- **Tipografías Personalizadas (.ttf, .otf, .woff2)**:
+  - Carga de fuentes locales directamente desde la computadora mediante la API `FontFace`.
+  - Integración inmediata en el selector de fuentes de las capas de texto.
+  - Almacenamiento embebido como Base64 DataURL dentro del archivo de proyecto JSON y autoguardado en `localStorage`.
+
+### 6. Exportación y Persistencia
 - **Exportar PNG**: genera una imagen en resolución nativa 1:1, con fondo negro o transparente según la elección del selector.
-- **Guardar / Cargar JSON**: persistencia completa del proyecto.
-- **Autoguardado en `localStorage`**: guarda en segundo plano cada cambio o movimiento.
+- **Guardar / Cargar JSON (v2.0)**: persistencia completa del proyecto, incluyendo pantallas LED, capas gráficas, fuentes tipográficas embebidas, configuraciones de lienzo y alineaciones.
+- **Autoguardado en `localStorage`**: guarda en segundo plano cada cambio, movimiento o adición de capa.
