@@ -184,6 +184,9 @@
       displayMode: "checker",
       gradientDirection: "horizontal",
       showModuleLines: true,
+      gridLineWidth: 1,
+      gridLineColor: "#ffffff",
+      gridBgColor: "#000000",
       canvasBg: "#000000",
       distributeSpacing: 0
     },
@@ -619,6 +622,28 @@
       return (g === "bw" || g === "gradient") ? g : "checker";
     },
 
+    /** Estilo efectivo de la grilla: valores propios de la pantalla o globales. */
+    getGridStyle(screen) {
+      const s = state.settings;
+      const hex = (v, d) => (typeof v === "string" && /^#[0-9A-Fa-f]{6}$/.test(v)) ? v : d;
+      const wRaw = screen && screen.gridLineWidth !== undefined ? screen.gridLineWidth : s.gridLineWidth;
+      const w = Math.max(1, Math.min(20, Math.round(Number(wRaw)) || 1));
+      return {
+        width: w,
+        color: hex(screen && screen.gridLineColor !== undefined ? screen.gridLineColor : s.gridLineColor, "#ffffff"),
+        bg: hex(screen && screen.gridBgColor !== undefined ? screen.gridBgColor : s.gridBgColor, "#000000")
+      };
+    },
+
+    /** Luminancia alta (color claro) para decidir texto negro. */
+    isLightColor(hexColor) {
+      const m = /^#([0-9A-Fa-f]{6})$/.exec(hexColor || "");
+      if (!m) return false;
+      const n = parseInt(m[1], 16);
+      const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+      return lum > 0.6;
+    },
+
     renderScreen(ctx, screen, isSelected, isPrimary) {
       const { x, y, widthPx, heightPx, cols, rows, color1, color2 } = screen;
       const mode = this.getScreenDisplayMode(screen);
@@ -662,12 +687,25 @@
         };
 
         if (mode === "bw") {
-          ctx.fillStyle = "#ffffff";
+          // Grilla personalizable (valor interno "bw"): fondo + líneas de módulo + contorno, recortado a la pantalla
+          const gs = this.getGridStyle(screen);
+          const half = Math.floor(gs.width / 2);
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, y, widthPx, heightPx);
+          ctx.clip();
+          ctx.fillStyle = gs.bg;
           ctx.fillRect(x, y, widthPx, heightPx);
-          drawModuleLines("#000000");
-          ctx.strokeStyle = "#000000";
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
+          ctx.fillStyle = gs.color;
+          for (let c = 0; c <= cols; c++) {
+            const ex = c === cols ? x + widthPx : Math.floor(x + c * colStep);
+            ctx.fillRect(ex - half, y, gs.width, heightPx);
+          }
+          for (let r = 0; r <= rows; r++) {
+            const ey = r === rows ? y + heightPx : Math.floor(y + r * rowStep);
+            ctx.fillRect(x, ey - half, widthPx, gs.width);
+          }
+          ctx.restore();
         } else {
           const dir = state.settings.gradientDirection;
           let grad;
@@ -694,12 +732,6 @@
       }
 
       if (isSelected) {
-        if (mode === "bw") {
-          // Trazo oscuro debajo del blanco para que se vea sobre fondo blanco
-          ctx.strokeStyle = "#000000";
-          ctx.lineWidth = isPrimary ? 3.5 : 3;
-          ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
-        }
         ctx.strokeStyle = isPrimary ? "#ffffff" : "#cccccc";
         ctx.lineWidth = isPrimary ? 1.5 : 1;
         ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
@@ -709,7 +741,7 @@
         this.drawHandle(ctx, x, y + heightPx, isPrimary);
         this.drawHandle(ctx, x + widthPx, y + heightPx, isPrimary);
       } else {
-        ctx.strokeStyle = mode === "bw" ? "rgba(0, 0, 0, 0.35)" : "rgba(255, 255, 255, 0.35)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
         ctx.lineWidth = 1;
         ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
       }
@@ -731,7 +763,7 @@
         : Math.max(14, Math.min(64, Math.floor(Math.min(widthPx, heightPx) / 6)));
 
       const fontWeight = screen.labelFontWeight || "300";
-      const fontColor = screen.labelColor || (this.getScreenDisplayMode(screen) === "bw" ? "#000000" : "#ffffff");
+      const fontColor = screen.labelColor || (this.isLightColor(this.getGridStyle(screen).bg) && this.getScreenDisplayMode(screen) === "bw" ? "#000000" : "#ffffff");
 
       ctx.save();
       ctx.textAlign = "center";
@@ -1795,7 +1827,15 @@
           manualWidth: state.canvas.manualWidth,
           manualHeight: state.canvas.manualHeight
         },
-        canvasBg: state.settings.canvasBg
+        canvasBg: state.settings.canvasBg,
+        display: {
+          displayMode: state.settings.displayMode,
+          gradientDirection: state.settings.gradientDirection,
+          showModuleLines: state.settings.showModuleLines,
+          gridLineWidth: state.settings.gridLineWidth,
+          gridLineColor: state.settings.gridLineColor,
+          gridBgColor: state.settings.gridBgColor
+        }
       });
     },
 
@@ -1862,6 +1902,7 @@
       state.locations = d.locations;
       state.canvas = Object.assign({}, state.canvas, d.canvas);
       state.settings.canvasBg = d.canvasBg;
+      if (d.display) Object.assign(state.settings, d.display);
 
       state.selectedScreenIds = snap.sel.screens.filter(id => state.screens.some(s => s.id === id));
       state.selectedScreenId = state.screens.some(s => s.id === snap.sel.screen)
@@ -1872,6 +1913,7 @@
       // Sincronizar controles de la barra superior
       const bgSel = document.getElementById("canvas-bg-select");
       if (bgSel) bgSel.value = state.settings.canvasBg;
+      UIController.updateDisplayModeControls();
       const modeSel = document.getElementById("canvas-mode-select");
       if (modeSel) modeSel.value = state.canvas.mode;
       const manualDims = document.getElementById("manual-canvas-dimensions");
@@ -2828,6 +2870,14 @@
       dirSel.value = state.settings.gradientDirection || "horizontal";
       linesChk.checked = state.settings.showModuleLines !== false;
       box.classList.toggle("hidden", modeSel.value !== "gradient");
+      const gridBox = document.getElementById("opt-grid-options");
+      if (gridBox) {
+        gridBox.classList.toggle("hidden", modeSel.value !== "bw");
+        const gs = RenderEngine.getGridStyle(null);
+        document.getElementById("opt-grid-line-width").value = gs.width;
+        document.getElementById("opt-grid-line-color").value = gs.color;
+        document.getElementById("opt-grid-bg-color").value = gs.bg;
+      }
     },
 
     bindSettingsControls() {
@@ -2854,6 +2904,23 @@
       document.getElementById("opt-show-module-lines").addEventListener("change", (e) => {
         state.settings.showModuleLines = e.target.checked;
         this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      document.getElementById("opt-grid-line-width").addEventListener("input", (e) => {
+        const v = parseInt(e.target.value, 10);
+        if (isNaN(v)) return;
+        state.settings.gridLineWidth = Math.max(1, Math.min(20, v));
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      document.getElementById("opt-grid-line-color").addEventListener("input", (e) => {
+        state.settings.gridLineColor = e.target.value;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      document.getElementById("opt-grid-bg-color").addEventListener("input", (e) => {
+        state.settings.gridBgColor = e.target.value;
         RenderEngine.render();
         Persistence.saveAuto();
       });
@@ -3040,10 +3107,31 @@
             <select id="screen-display-mode" class="form-select">
               <option value="global" ${!screen.displayMode || screen.displayMode === "global" ? "selected" : ""}>Usar global</option>
               <option value="checker" ${screen.displayMode === "checker" ? "selected" : ""}>Damero</option>
-              <option value="bw" ${screen.displayMode === "bw" ? "selected" : ""}>Grilla B/N</option>
+              <option value="bw" ${screen.displayMode === "bw" ? "selected" : ""}>Grilla</option>
               <option value="gradient" ${screen.displayMode === "gradient" ? "selected" : ""}>Degradado</option>
             </select>
           </div>
+          ${RenderEngine.getScreenDisplayMode(screen) === "bw" ? (() => {
+            const gs = RenderEngine.getGridStyle(screen);
+            return `
+          <div class="form-grid-3">
+            <div class="form-group">
+              <label for="screen-grid-line-width"><span>Grosor</span><span class="label-unit">px</span></label>
+              <input type="number" id="screen-grid-line-width" class="form-input" min="1" max="20" step="1" value="${gs.width}">
+            </div>
+            <div class="form-group">
+              <label for="screen-grid-line-color">Color línea</label>
+              <input type="color" id="screen-grid-line-color" class="color-input-native" value="${gs.color}">
+            </div>
+            <div class="form-group">
+              <label for="screen-grid-bg-color">Color fondo</label>
+              <input type="color" id="screen-grid-bg-color" class="color-input-native" value="${gs.bg}">
+            </div>
+          </div>
+          <div class="form-group">
+            <button type="button" id="btn-screen-grid-global" class="btn btn-secondary btn-sm">Usar global</button>
+          </div>`;
+          })() : ""}
           ${(state.settings.displayMode === "gradient" || screen.displayMode === "gradient") ? `
           <div class="form-group">
             <label for="screen-gradient-direction">Dirección del degradado (global)</label>
@@ -3353,6 +3441,34 @@
         this.updateActiveScreenForm();
       });
       const scrDir = getEl("screen-gradient-direction");
+      const gridW = getEl("screen-grid-line-width");
+      if (gridW) {
+        gridW.addEventListener("input", (e) => {
+          const v = parseInt(e.target.value, 10);
+          if (isNaN(v)) return;
+          screen.gridLineWidth = Math.max(1, Math.min(20, v));
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        getEl("screen-grid-line-color").addEventListener("input", (e) => {
+          screen.gridLineColor = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        getEl("screen-grid-bg-color").addEventListener("input", (e) => {
+          screen.gridBgColor = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        getEl("btn-screen-grid-global").addEventListener("click", () => {
+          delete screen.gridLineWidth;
+          delete screen.gridLineColor;
+          delete screen.gridBgColor;
+          RenderEngine.render();
+          Persistence.saveAuto();
+          this.updateActiveScreenForm();
+        });
+      }
       if (scrDir) {
         scrDir.addEventListener("change", (e) => {
           state.settings.gradientDirection = e.target.value;

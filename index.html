@@ -298,9 +298,25 @@
               <label for="opt-display-mode">Visualización</label>
               <select id="opt-display-mode" class="form-select">
                 <option value="checker">Damero</option>
-                <option value="bw">Grilla B/N</option>
+                <option value="bw">Grilla</option>
                 <option value="gradient">Degradado</option>
               </select>
+            </div>
+            <div id="opt-grid-options" class="hidden">
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label for="opt-grid-line-width"><span>Grosor</span><span class="label-unit">px</span></label>
+                  <input type="number" id="opt-grid-line-width" class="form-input" min="1" max="20" step="1" value="1">
+                </div>
+                <div class="form-group">
+                  <label for="opt-grid-line-color">Color línea</label>
+                  <input type="color" id="opt-grid-line-color" class="color-input-native" value="#ffffff">
+                </div>
+                <div class="form-group">
+                  <label for="opt-grid-bg-color">Color fondo</label>
+                  <input type="color" id="opt-grid-bg-color" class="color-input-native" value="#000000">
+                </div>
+              </div>
             </div>
             <div id="opt-gradient-options" class="hidden">
               <div class="form-group">
