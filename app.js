@@ -181,6 +181,9 @@
       snapEnabled: true,
       showLabels: true,
       showSublabels: true,
+      displayMode: "checker",
+      gradientDirection: "horizontal",
+      showModuleLines: true,
       canvasBg: "#000000",
       distributeSpacing: 0
     },
@@ -608,13 +611,23 @@
       }
     },
 
+    /** Modo de visualización efectivo de una pantalla (propio o global). */
+    getScreenDisplayMode(screen) {
+      const own = screen && screen.displayMode;
+      if (own === "checker" || own === "bw" || own === "gradient") return own;
+      const g = state.settings.displayMode;
+      return (g === "bw" || g === "gradient") ? g : "checker";
+    },
+
     renderScreen(ctx, screen, isSelected, isPrimary) {
       const { x, y, widthPx, heightPx, cols, rows, color1, color2 } = screen;
+      const mode = this.getScreenDisplayMode(screen);
 
       ctx.save();
       const colStep = widthPx / cols;
       const rowStep = heightPx / rows;
 
+      if (mode === "checker") {
       for (let r = 0; r < rows; r++) {
         const cellY = Math.floor(y + r * rowStep);
         const nextCellY = Math.floor(y + (r + 1) * rowStep);
@@ -629,8 +642,64 @@
           ctx.fillRect(cellX, cellY, cellW, cellH);
         }
       }
+      } else {
+        // Líneas de módulo internas, alineadas a píxel (mismo redondeo que el damero)
+        const drawModuleLines = (strokeStyle) => {
+          ctx.strokeStyle = strokeStyle;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let c = 1; c < cols; c++) {
+            const lx = Math.floor(x + c * colStep) + 0.5;
+            ctx.moveTo(lx, y);
+            ctx.lineTo(lx, y + heightPx);
+          }
+          for (let r = 1; r < rows; r++) {
+            const ly = Math.floor(y + r * rowStep) + 0.5;
+            ctx.moveTo(x, ly);
+            ctx.lineTo(x + widthPx, ly);
+          }
+          ctx.stroke();
+        };
+
+        if (mode === "bw") {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(x, y, widthPx, heightPx);
+          drawModuleLines("#000000");
+          ctx.strokeStyle = "#000000";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
+        } else {
+          const dir = state.settings.gradientDirection;
+          let grad;
+          if (dir === "vertical") {
+            grad = ctx.createLinearGradient(x, y, x, y + heightPx);
+          } else if (dir === "diagonal") {
+            grad = ctx.createLinearGradient(x, y, x + widthPx, y + heightPx);
+          } else if (dir === "radial") {
+            grad = ctx.createRadialGradient(
+              x + widthPx / 2, y + heightPx / 2, 0,
+              x + widthPx / 2, y + heightPx / 2, Math.hypot(widthPx, heightPx) / 2
+            );
+          } else {
+            grad = ctx.createLinearGradient(x, y, x + widthPx, y);
+          }
+          grad.addColorStop(0, color1);
+          grad.addColorStop(1, color2);
+          ctx.fillStyle = grad;
+          ctx.fillRect(x, y, widthPx, heightPx);
+          if (state.settings.showModuleLines !== false) {
+            drawModuleLines("rgba(0, 0, 0, 0.35)");
+          }
+        }
+      }
 
       if (isSelected) {
+        if (mode === "bw") {
+          // Trazo oscuro debajo del blanco para que se vea sobre fondo blanco
+          ctx.strokeStyle = "#000000";
+          ctx.lineWidth = isPrimary ? 3.5 : 3;
+          ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
+        }
         ctx.strokeStyle = isPrimary ? "#ffffff" : "#cccccc";
         ctx.lineWidth = isPrimary ? 1.5 : 1;
         ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
@@ -640,7 +709,7 @@
         this.drawHandle(ctx, x, y + heightPx, isPrimary);
         this.drawHandle(ctx, x + widthPx, y + heightPx, isPrimary);
       } else {
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+        ctx.strokeStyle = mode === "bw" ? "rgba(0, 0, 0, 0.35)" : "rgba(255, 255, 255, 0.35)";
         ctx.lineWidth = 1;
         ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
       }
@@ -662,7 +731,7 @@
         : Math.max(14, Math.min(64, Math.floor(Math.min(widthPx, heightPx) / 6)));
 
       const fontWeight = screen.labelFontWeight || "300";
-      const fontColor = screen.labelColor || "#ffffff";
+      const fontColor = screen.labelColor || (this.getScreenDisplayMode(screen) === "bw" ? "#000000" : "#ffffff");
 
       ctx.save();
       ctx.textAlign = "center";
@@ -2748,12 +2817,46 @@
       }
     },
 
+    /** Sincroniza los controles globales de visualización con state.settings. */
+    updateDisplayModeControls() {
+      const modeSel = document.getElementById("opt-display-mode");
+      const dirSel = document.getElementById("opt-gradient-direction");
+      const linesChk = document.getElementById("opt-show-module-lines");
+      const box = document.getElementById("opt-gradient-options");
+      if (!modeSel) return;
+      modeSel.value = state.settings.displayMode || "checker";
+      dirSel.value = state.settings.gradientDirection || "horizontal";
+      linesChk.checked = state.settings.showModuleLines !== false;
+      box.classList.toggle("hidden", modeSel.value !== "gradient");
+    },
+
     bindSettingsControls() {
       const chkLabels = document.getElementById("opt-show-labels");
       const chkSublabels = document.getElementById("opt-show-sublabels");
 
       chkLabels.checked = state.settings.showLabels;
       chkSublabels.checked = state.settings.showSublabels;
+
+      this.updateDisplayModeControls();
+      document.getElementById("opt-display-mode").addEventListener("change", (e) => {
+        state.settings.displayMode = e.target.value;
+        this.updateDisplayModeControls();
+        this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      document.getElementById("opt-gradient-direction").addEventListener("change", (e) => {
+        state.settings.gradientDirection = e.target.value;
+        this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      document.getElementById("opt-show-module-lines").addEventListener("change", (e) => {
+        state.settings.showModuleLines = e.target.checked;
+        this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
 
       chkLabels.addEventListener("change", (e) => {
         state.settings.showLabels = e.target.checked;
@@ -2928,6 +3031,33 @@
               </select>
             </div>
           </div>
+        </div>
+
+        <div class="editor-card">
+          <div class="editor-card-title"><span>Visualización</span></div>
+          <div class="form-group">
+            <label for="screen-display-mode">Visualización</label>
+            <select id="screen-display-mode" class="form-select">
+              <option value="global" ${!screen.displayMode || screen.displayMode === "global" ? "selected" : ""}>Usar global</option>
+              <option value="checker" ${screen.displayMode === "checker" ? "selected" : ""}>Damero</option>
+              <option value="bw" ${screen.displayMode === "bw" ? "selected" : ""}>Grilla B/N</option>
+              <option value="gradient" ${screen.displayMode === "gradient" ? "selected" : ""}>Degradado</option>
+            </select>
+          </div>
+          ${(state.settings.displayMode === "gradient" || screen.displayMode === "gradient") ? `
+          <div class="form-group">
+            <label for="screen-gradient-direction">Dirección del degradado (global)</label>
+            <select id="screen-gradient-direction" class="form-select">
+              <option value="horizontal" ${state.settings.gradientDirection === "horizontal" || !state.settings.gradientDirection ? "selected" : ""}>Horizontal</option>
+              <option value="vertical" ${state.settings.gradientDirection === "vertical" ? "selected" : ""}>Vertical</option>
+              <option value="diagonal" ${state.settings.gradientDirection === "diagonal" ? "selected" : ""}>Diagonal</option>
+              <option value="radial" ${state.settings.gradientDirection === "radial" ? "selected" : ""}>Radial</option>
+            </select>
+          </div>
+          <label class="setting-row">
+            <span>Mostrar líneas de módulo (global)</span>
+            <input type="checkbox" id="screen-module-lines" ${state.settings.showModuleLines !== false ? "checked" : ""}>
+          </label>` : ""}
         </div>
 
         <div class="editor-card">
@@ -3211,6 +3341,31 @@
         });
         getEl("screen-label-bg-padding").addEventListener("input", (e) => {
           screen.labelBgPadding = Math.max(0, parseInt(e.target.value, 10) || 0);
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+      }
+
+      getEl("screen-display-mode").addEventListener("change", (e) => {
+        screen.displayMode = e.target.value;
+        RenderEngine.render();
+        Persistence.saveAuto();
+        this.updateActiveScreenForm();
+      });
+      const scrDir = getEl("screen-gradient-direction");
+      if (scrDir) {
+        scrDir.addEventListener("change", (e) => {
+          state.settings.gradientDirection = e.target.value;
+          this.updateDisplayModeControls();
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+      }
+      const scrLines = getEl("screen-module-lines");
+      if (scrLines) {
+        scrLines.addEventListener("change", (e) => {
+          state.settings.showModuleLines = e.target.checked;
+          this.updateDisplayModeControls();
           RenderEngine.render();
           Persistence.saveAuto();
         });
@@ -3934,6 +4089,7 @@
             UIController.updateLayersList();
             UIController.updateActiveLayerForm();
             UIController.updateFontTagsList();
+            UIController.updateDisplayModeControls();
             UIController.updateSummaryTable();
             UIController.updateSelectionHint();
             RenderEngine.render();

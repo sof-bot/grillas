@@ -294,6 +294,29 @@
               <span>Mostrar especificaciones técnicas secundarias</span>
               <input type="checkbox" id="opt-show-sublabels" checked>
             </label>
+            <div class="form-group">
+              <label for="opt-display-mode">Visualización</label>
+              <select id="opt-display-mode" class="form-select">
+                <option value="checker">Damero</option>
+                <option value="bw">Grilla B/N</option>
+                <option value="gradient">Degradado</option>
+              </select>
+            </div>
+            <div id="opt-gradient-options" class="hidden">
+              <div class="form-group">
+                <label for="opt-gradient-direction">Dirección del degradado</label>
+                <select id="opt-gradient-direction" class="form-select">
+                  <option value="horizontal">Horizontal</option>
+                  <option value="vertical">Vertical</option>
+                  <option value="diagonal">Diagonal</option>
+                  <option value="radial">Radial</option>
+                </select>
+              </div>
+              <label class="setting-row">
+                <span>Mostrar líneas de módulo</span>
+                <input type="checkbox" id="opt-show-module-lines" checked>
+              </label>
+            </div>
           </div>
 
           <div class="settings-group">
