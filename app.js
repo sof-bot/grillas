@@ -3510,6 +3510,7 @@
 
     bindButtons() {
       document.getElementById("btn-export-png").addEventListener("click", () => this.exportPNG());
+      document.getElementById("btn-export-svg").addEventListener("click", () => this.exportSVG());
       document.getElementById("btn-save-json").addEventListener("click", () => this.exportJSON());
       document.getElementById("input-load-json").addEventListener("change", (e) => {
         this.importJSON(e.target.files[0]);
@@ -3558,6 +3559,152 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }, "image/png");
+    },
+
+    /** Exporta el lienzo completo como SVG (grupos nombrados, pensado para Illustrator). */
+    exportSVG() {
+      RenderEngine.computeCanvasBounds();
+      const w = state.canvas.computedWidth;
+      const h = state.canvas.computedHeight;
+
+      const esc = (s) => String(s === undefined || s === null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+      const num = (n) => +(+n).toFixed(3);
+      const usedIds = new Set();
+      const uniqueId = (raw, fallback) => {
+        let base = String(raw || fallback).trim().replace(/[^A-Za-z0-9_\-]+/g, "_").replace(/^_+|_+$/g, "");
+        if (!base) base = fallback;
+        if (/^[0-9\-]/.test(base)) base = "_" + base;
+        let id = base, i = 2;
+        while (usedIds.has(id)) id = `${base}_${i++}`;
+        usedIds.add(id);
+        return id;
+      };
+      const hasPaint = (c) => c && c !== "transparent";
+      const out = [];
+      const defs = [];
+
+      // Fondo
+      if (state.settings.canvasBg !== "transparent") {
+        out.push(`  <rect id="${uniqueId("Fondo", "Fondo")}" x="0" y="0" width="${w}" height="${h}" fill="#000000"/>`);
+      }
+
+      // Pantallas
+      state.screens.forEach((screen, idx) => {
+        const { x, y, widthPx, heightPx, cols, rows, color1, color2 } = screen;
+        const colStep = widthPx / cols;
+        const rowStep = heightPx / rows;
+        const gid = uniqueId(screen.label, `Pantalla_${idx + 1}`);
+        out.push(`  <g id="${gid}" data-name="${esc(screen.label)}">`);
+        out.push(`    <g id="${gid}_modulos" shape-rendering="crispEdges">`);
+        for (let r = 0; r < rows; r++) {
+          const cellY = Math.floor(y + r * rowStep);
+          const cellH = Math.floor(y + (r + 1) * rowStep) - cellY;
+          for (let c = 0; c < cols; c++) {
+            const cellX = Math.floor(x + c * colStep);
+            const cellW = Math.floor(x + (c + 1) * colStep) - cellX;
+            out.push(`      <rect x="${cellX}" y="${cellY}" width="${cellW}" height="${cellH}" fill="${esc(((r + c) % 2 === 0) ? color1 : color2)}"/>`);
+          }
+        }
+        out.push(`    </g>`);
+        out.push(`    <rect x="${num(x + 0.5)}" y="${num(y + 0.5)}" width="${num(widthPx - 1)}" height="${num(heightPx - 1)}" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="1"/>`);
+
+        if (state.settings.showLabels) {
+          const centerX = x + widthPx / 2;
+          const centerY = y + heightPx / 2;
+          const fontSize = (screen.labelFontSize && screen.labelFontSize > 0)
+            ? screen.labelFontSize
+            : Math.max(14, Math.min(64, Math.floor(Math.min(widthPx, heightPx) / 6)));
+          const fontWeight = screen.labelFontWeight || "300";
+          const fontColor = screen.labelColor || "#ffffff";
+          const fam = esc(FONT_MAIN.replace(/"/g, "'"));
+          const showSub = state.settings.showSublabels && heightPx >= 70 && widthPx >= 90;
+          const labelY = showSub ? centerY - fontSize * 0.45 : centerY;
+          const common = `text-anchor="middle" dominant-baseline="central" font-family="${fam}" fill="${esc(fontColor)}"`;
+          out.push(`    <text id="${gid}_etiqueta" x="${num(centerX)}" y="${num(labelY)}" font-size="${fontSize}" font-weight="${esc(fontWeight)}" ${common}>${esc(screen.label)}</text>`);
+          if (showSub) {
+            const subFont = Math.max(10, Math.floor(fontSize * 0.38));
+            const pitchText = screen.pitchReal ? `${screen.pitchReal.toFixed(3)} mm` : `${screen.pitch} mm`;
+            const line1 = `${screen.location} • P${pitchText}`;
+            const line2 = `${widthPx}×${heightPx} px (${cols}×${rows} mod)`;
+            out.push(`    <text id="${gid}_info1" x="${num(centerX)}" y="${num(centerY + fontSize * 0.35)}" font-size="${subFont}" font-weight="300" fill-opacity="0.8" ${common}>${esc(line1)}</text>`);
+            out.push(`    <text id="${gid}_info2" x="${num(centerX)}" y="${num(centerY + fontSize * 0.35 + subFont * 1.35)}" font-size="${subFont}" font-weight="300" fill-opacity="0.8" ${common}>${esc(line2)}</text>`);
+          }
+        }
+        out.push(`  </g>`);
+      });
+
+      // Capas gráficas
+      state.layers.forEach((layer, idx) => {
+        if (!layer.visible) return;
+        const { type, x, y, width, height } = layer;
+        const halfW = width / 2;
+        const halfH = height / 2;
+        const rot = layer.rotation || 0;
+        const opacity = Math.max(0, Math.min(1, layer.opacity !== undefined ? layer.opacity : 1));
+        const gid = uniqueId(layer.name || `${type}_${idx + 1}`, `Capa_${idx + 1}`);
+        const fillOn = hasPaint(layer.fillColor);
+        const strokeOn = layer.strokeWidth > 0 && hasPaint(layer.strokeColor);
+        const strokeAttr = strokeOn ? ` stroke="${esc(layer.strokeColor)}" stroke-width="${num(layer.strokeWidth)}"` : "";
+        let body = "";
+
+        if (type === "rect") {
+          body = `<rect x="${num(-halfW)}" y="${num(-halfH)}" width="${num(width)}" height="${num(height)}" fill="${fillOn ? esc(layer.fillColor) : "none"}"${strokeAttr}/>`;
+        } else if (type === "circle") {
+          body = `<ellipse cx="0" cy="0" rx="${num(Math.abs(halfW))}" ry="${num(Math.abs(halfH))}" fill="${fillOn ? esc(layer.fillColor) : "none"}"${strokeAttr}/>`;
+        } else if (type === "line") {
+          body = `<line x1="${num(-halfW)}" y1="0" x2="${num(halfW)}" y2="0" fill="none" stroke="${esc(layer.strokeColor || "#ffffff")}" stroke-width="${num(layer.strokeWidth || 2)}"/>`;
+        } else if (type === "gradient") {
+          const stops = layer.gradientStops && layer.gradientStops.length >= 2
+            ? layer.gradientStops
+            : [{ offset: 0, color: "#ffffff" }, { offset: 1, color: "#000000" }];
+          const stopsXml = stops.map(st =>
+            `<stop offset="${num(Math.max(0, Math.min(1, st.offset)))}" stop-color="${esc(st.color)}"/>`).join("");
+          const gradId = uniqueId(`${gid}_degradado`, "degradado");
+          if (layer.gradientType === "radial") {
+            const rr = Math.max(halfW, halfH);
+            defs.push(`    <radialGradient id="${gradId}" gradientUnits="userSpaceOnUse" cx="0" cy="0" fx="0" fy="0" r="${num(rr)}">${stopsXml}</radialGradient>`);
+          } else {
+            const a = ((layer.gradientAngle || 90) * Math.PI) / 180;
+            defs.push(`    <linearGradient id="${gradId}" gradientUnits="userSpaceOnUse" x1="${num(-Math.cos(a) * halfW)}" y1="${num(-Math.sin(a) * halfH)}" x2="${num(Math.cos(a) * halfW)}" y2="${num(Math.sin(a) * halfH)}">${stopsXml}</linearGradient>`);
+          }
+          body = `<rect x="${num(-halfW)}" y="${num(-halfH)}" width="${num(width)}" height="${num(height)}" fill="url(#${gradId})"${strokeAttr}/>`;
+        } else if (type === "text") {
+          const fontSize = layer.fontSize || 36;
+          const fam = esc((layer.fontFamily ? `'${layer.fontFamily}', ${FONT_MAIN}` : FONT_MAIN).replace(/"/g, "'"));
+          const align = layer.textAlign || "center";
+          const anchor = align === "left" ? "start" : align === "right" ? "end" : "middle";
+          const textX = align === "left" ? -halfW : align === "right" ? halfW : 0;
+          if (!fillOn && !strokeOn) return;
+          body = `<text x="${num(textX)}" y="0" text-anchor="${anchor}" dominant-baseline="central" font-family="${fam}" font-size="${fontSize}" font-weight="${esc(layer.fontWeight || "400")}" fill="${fillOn ? esc(layer.fillColor) : "none"}"${strokeAttr}>${esc(layer.text || "")}</text>`;
+        } else {
+          return;
+        }
+
+        const cx = x + halfW;
+        const cy = y + halfH;
+        const tf = `translate(${num(cx)} ${num(cy)})` + (rot ? ` rotate(${num(rot)})` : "");
+        const opAttr = opacity < 1 ? ` opacity="${num(opacity)}"` : "";
+        out.push(`  <g id="${gid}" transform="${tf}"${opAttr}>`);
+        out.push(`    ${body}`);
+        out.push(`  </g>`);
+      });
+
+      const svg = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n` +
+        (defs.length ? `  <defs>\n${defs.join("\n")}\n  </defs>\n` : "") +
+        out.join("\n") + `\n</svg>\n`;
+
+      const blob = new Blob([svg], { type: "image/svg+xml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `led_mapping_grid_${w}x${h}px.svg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     },
 
     exportJSON() {
