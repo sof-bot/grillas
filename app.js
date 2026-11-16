@@ -653,20 +653,20 @@
       const rowStep = heightPx / rows;
 
       if (mode === "checker") {
-      for (let r = 0; r < rows; r++) {
-        const cellY = Math.floor(y + r * rowStep);
-        const nextCellY = Math.floor(y + (r + 1) * rowStep);
-        const cellH = nextCellY - cellY;
+        for (let r = 0; r < rows; r++) {
+          const cellY = Math.floor(y + r * rowStep);
+          const nextCellY = Math.floor(y + (r + 1) * rowStep);
+          const cellH = nextCellY - cellY;
 
-        for (let c = 0; c < cols; c++) {
-          const cellX = Math.floor(x + c * colStep);
-          const nextCellX = Math.floor(x + (c + 1) * colStep);
-          const cellW = nextCellX - cellX;
+          for (let c = 0; c < cols; c++) {
+            const cellX = Math.floor(x + c * colStep);
+            const nextCellX = Math.floor(x + (c + 1) * colStep);
+            const cellW = nextCellX - cellX;
 
-          ctx.fillStyle = ((r + c) % 2 === 0) ? color1 : color2;
-          ctx.fillRect(cellX, cellY, cellW, cellH);
+            ctx.fillStyle = ((r + c) % 2 === 0) ? color1 : color2;
+            ctx.fillRect(cellX, cellY, cellW, cellH);
+          }
         }
-      }
       } else {
         // Líneas de módulo internas, alineadas a píxel (mismo redondeo que el damero)
         const drawModuleLines = (strokeStyle) => {
@@ -697,6 +697,8 @@
           ctx.fillStyle = gs.bg;
           ctx.fillRect(x, y, widthPx, heightPx);
           ctx.fillStyle = gs.color;
+          // Rect de ancho w con inicio en (borde - floor(w/2)): equivale a trazo centrado
+          // (+0.5 para grosor impar, sin offset para grosor par), siempre alineado a píxel.
           for (let c = 0; c <= cols; c++) {
             const ex = c === cols ? x + widthPx : Math.floor(x + c * colStep);
             ctx.fillRect(ex - half, y, gs.width, heightPx);
@@ -763,7 +765,7 @@
         : Math.max(14, Math.min(64, Math.floor(Math.min(widthPx, heightPx) / 6)));
 
       const fontWeight = screen.labelFontWeight || "300";
-      const fontColor = screen.labelColor || (this.isLightColor(this.getGridStyle(screen).bg) && this.getScreenDisplayMode(screen) === "bw" ? "#000000" : "#ffffff");
+      const fontColor = screen.labelColor || (this.getScreenDisplayMode(screen) === "bw" && this.isLightColor(this.getGridStyle(screen).bg) ? "#000000" : "#ffffff");
 
       ctx.save();
       ctx.textAlign = "center";
@@ -2911,16 +2913,19 @@
         const v = parseInt(e.target.value, 10);
         if (isNaN(v)) return;
         state.settings.gridLineWidth = Math.max(1, Math.min(20, v));
+        this.updateActiveScreenForm();
         RenderEngine.render();
         Persistence.saveAuto();
       });
       document.getElementById("opt-grid-line-color").addEventListener("input", (e) => {
         state.settings.gridLineColor = e.target.value;
+        this.updateActiveScreenForm();
         RenderEngine.render();
         Persistence.saveAuto();
       });
       document.getElementById("opt-grid-bg-color").addEventListener("input", (e) => {
         state.settings.gridBgColor = e.target.value;
+        this.updateActiveScreenForm();
         RenderEngine.render();
         Persistence.saveAuto();
       });

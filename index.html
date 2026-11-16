@@ -1,18 +1,20 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LED Grid Mapper</title>
   <meta name="description" content="Generador de grillas de mapping para pantallas LED en píxeles reales 1:1.">
-  
+
   <!-- Tipografía Inter desde Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap" rel="stylesheet">
-  
+
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body class="dark-theme">
 
   <!-- =========================================================================
@@ -51,9 +53,11 @@
         </div>
 
         <div id="manual-canvas-dimensions" class="nav-control-group hidden">
-          <input type="number" id="canvas-width-input" class="form-input-sm" min="100" max="16384" step="1" title="Ancho de lienzo en px" placeholder="W (px)">
+          <input type="number" id="canvas-width-input" class="form-input-sm" min="100" max="16384" step="1"
+            title="Ancho de lienzo en px" placeholder="W (px)">
           <span class="dim-divider">×</span>
-          <input type="number" id="canvas-height-input" class="form-input-sm" min="100" max="16384" step="1" title="Alto de lienzo en px" placeholder="H (px)">
+          <input type="number" id="canvas-height-input" class="form-input-sm" min="100" max="16384" step="1"
+            title="Alto de lienzo en px" placeholder="H (px)">
           <select id="canvas-presets-select" class="form-select-sm" title="Presets comunes">
             <option value="">Presets...</option>
             <option value="1920x1080">1920 × 1080 (FHD)</option>
@@ -76,14 +80,18 @@
 
       <div class="nav-right">
         <div class="btn-group">
-          <button id="btn-save-json" class="btn btn-secondary btn-sm" title="Guardar proyecto como JSON">Guardar JSON</button>
+          <button id="btn-save-json" class="btn btn-secondary btn-sm" title="Guardar proyecto como JSON">Guardar
+            JSON</button>
           <label class="btn btn-secondary btn-sm btn-file-label" title="Cargar proyecto desde JSON">
             Cargar JSON
             <input type="file" id="input-load-json" accept=".json" class="hidden-file-input">
           </label>
-          <button id="btn-export-png" class="btn btn-primary btn-sm" title="Exportar grilla completa en PNG a resolución exacta">Exportar PNG</button>
-          <button id="btn-export-svg" class="btn btn-primary btn-sm" title="Exportar lienzo completo en SVG vectorial (grupos nombrados, para Illustrator)">Exportar SVG</button>
-          <button id="btn-export-pdf" class="btn btn-primary btn-sm" title="Exportar lienzo completo en PDF vectorial">Exportar PDF</button>
+          <button id="btn-export-png" class="btn btn-primary btn-sm"
+            title="Exportar grilla completa en PNG a resolución exacta">Exportar PNG</button>
+          <button id="btn-export-svg" class="btn btn-primary btn-sm"
+            title="Exportar lienzo completo en SVG vectorial (grupos nombrados, para Illustrator)">Exportar SVG</button>
+          <button id="btn-export-pdf" class="btn btn-primary btn-sm"
+            title="Exportar lienzo completo en PDF vectorial">Exportar PDF</button>
         </div>
       </div>
     </header>
@@ -117,7 +125,8 @@
         <button id="btn-distribute-h" class="btn btn-tool" title="Distribuir horizontalmente">Distribuir H</button>
         <button id="btn-distribute-v" class="btn btn-tool" title="Distribuir verticalmente">Distribuir V</button>
         <label for="distribute-spacing-input" class="toolbar-label">Sep:</label>
-        <input type="number" id="distribute-spacing-input" class="form-input-sm spacing-input" value="0" min="0" step="1" title="Separación en píxeles">
+        <input type="number" id="distribute-spacing-input" class="form-input-sm spacing-input" value="0" min="0"
+          step="1" title="Separación en píxeles">
         <span class="toolbar-unit">px</span>
       </div>
 
@@ -161,7 +170,8 @@
               <p class="section-desc">Cálculo bidireccional y configuración de módulos.</p>
             </div>
             <div class="sidebar-header-actions">
-              <button id="btn-add-screen" class="btn btn-secondary btn-sm" title="Agregar nueva pantalla">Nueva Pantalla</button>
+              <button id="btn-add-screen" class="btn btn-secondary btn-sm" title="Agregar nueva pantalla">Nueva
+                Pantalla</button>
             </div>
           </div>
 
@@ -171,8 +181,10 @@
             <select id="active-screen-select" class="form-select">
               <!-- Opciones dinámicas -->
             </select>
-            <button id="btn-duplicate-screen" class="btn btn-secondary btn-sm" title="Duplicar pantalla seleccionada">Duplicar</button>
-            <button id="btn-delete-screen" class="btn btn-danger btn-sm" title="Eliminar pantalla seleccionada">Eliminar</button>
+            <button id="btn-duplicate-screen" class="btn btn-secondary btn-sm"
+              title="Duplicar pantalla seleccionada">Duplicar</button>
+            <button id="btn-delete-screen" class="btn btn-danger btn-sm"
+              title="Eliminar pantalla seleccionada">Eliminar</button>
           </div>
 
           <!-- Formulario de la pantalla activa -->
@@ -227,7 +239,8 @@
             <div class="editor-card-title">
               <span>Tipografías Personalizadas</span>
             </div>
-            <p class="small-text">Carga tipografías (.ttf, .otf, .woff2) para usarlas en capas de texto y guardarlas en el proyecto:</p>
+            <p class="small-text">Carga tipografías (.ttf, .otf, .woff2) para usarlas en capas de texto y guardarlas en
+              el proyecto:</p>
             <div class="custom-fonts-actions">
               <label class="btn btn-secondary btn-sm btn-file-label">
                 Cargar fuente (.ttf, .otf, .woff2)
@@ -298,6 +311,7 @@
               <label for="opt-display-mode">Visualización</label>
               <select id="opt-display-mode" class="form-select">
                 <option value="checker">Damero</option>
+                <option value="bw">Grilla B/N</option>
                 <option value="bw">Grilla</option>
                 <option value="gradient">Degradado</option>
               </select>
@@ -350,8 +364,10 @@
           <div class="settings-group">
             <h3>Gestión de Proyecto</h3>
             <div class="project-actions-column">
-              <button id="btn-reset-layout" class="btn btn-secondary btn-block">Restaurar Layout de Cruz Inicial</button>
-              <button id="btn-clear-project" class="btn btn-danger-outline btn-block">Borrar Todo y Empezar en Blanco</button>
+              <button id="btn-reset-layout" class="btn btn-secondary btn-block">Restaurar Layout de Cruz
+                Inicial</button>
+              <button id="btn-clear-project" class="btn btn-danger-outline btn-block">Borrar Todo y Empezar en
+                Blanco</button>
             </div>
             <div id="autosave-status" class="autosave-status">
               <span>Guardado automáticamente</span>
@@ -387,7 +403,8 @@
             <button id="btn-zoom-fit" class="hud-btn hud-btn-text" title="Ajustar grilla a la ventana">Ajustar</button>
           </div>
           <div class="hud-hint">
-            <span>Shift + Clic para selección múltiple • Clic y arrastre para mover • Manijas para escalar y rotar</span>
+            <span>Shift + Clic para selección múltiple • Clic y arrastre para mover • Manijas para escalar y
+              rotar</span>
           </div>
         </div>
 
@@ -409,4 +426,5 @@
   <script src="https://cdn.jsdelivr.net/npm/svg2pdf.js@2.2.4/dist/svg2pdf.umd.min.js"></script>
   <script src="app.js"></script>
 </body>
+
 </html>
