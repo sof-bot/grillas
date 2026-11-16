@@ -3511,6 +3511,7 @@
     bindButtons() {
       document.getElementById("btn-export-png").addEventListener("click", () => this.exportPNG());
       document.getElementById("btn-export-svg").addEventListener("click", () => this.exportSVG());
+      document.getElementById("btn-export-pdf").addEventListener("click", () => this.exportPDF());
       document.getElementById("btn-save-json").addEventListener("click", () => this.exportJSON());
       document.getElementById("input-load-json").addEventListener("change", (e) => {
         this.importJSON(e.target.files[0]);
@@ -3562,7 +3563,8 @@
     },
 
     /** Exporta el lienzo completo como SVG (grupos nombrados, pensado para Illustrator). */
-    exportSVG() {
+    /** Construye el SVG del lienzo completo. Devuelve { svg, w, h }. */
+    buildSVG() {
       RenderEngine.computeCanvasBounds();
       const w = state.canvas.computedWidth;
       const h = state.canvas.computedHeight;
@@ -3696,6 +3698,12 @@
         (defs.length ? `  <defs>\n${defs.join("\n")}\n  </defs>\n` : "") +
         out.join("\n") + `\n</svg>\n`;
 
+      return { svg, w, h };
+    },
+
+    /** Descarga el SVG del lienzo (usa buildSVG). */
+    exportSVG() {
+      const { svg, w, h } = this.buildSVG();
       const blob = new Blob([svg], { type: "image/svg+xml" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -3705,6 +3713,90 @@
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+    },
+
+    /** Exporta PDF vectorial: reutiliza buildSVG() y lo convierte con jsPDF + svg2pdf.js. */
+    async exportPDF() {
+      const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+      if (!jsPDFCtor) {
+        alert("No se pudo exportar el PDF: jsPDF no está cargado (¿sin conexión a internet / CDN bloqueado?).");
+        return;
+      }
+
+      const { svg, w, h } = this.buildSVG();
+      const messages = [];
+
+      // Escala si supera el límite de página (14400 unidades, límite de jsPDF / visores PDF)
+      const MAX_PAGE = 14400;
+      const scale = Math.min(1, MAX_PAGE / Math.max(w, h));
+      const pageW = w * scale;
+      const pageH = h * scale;
+      if (scale < 1) {
+        messages.push(`El lienzo (${w}×${h} px) supera el máximo de página del PDF (${MAX_PAGE}). Se escaló proporcionalmente con factor ${scale.toFixed(5)} (${(scale * 100).toFixed(2)}%).`);
+      }
+
+      const doc = new jsPDFCtor({
+        orientation: pageW >= pageH ? "landscape" : "portrait",
+        unit: "pt",
+        format: [pageW, pageH]
+      });
+
+      if (typeof doc.svg !== "function" && !(window.svg2pdf && window.svg2pdf.svg2pdf)) {
+        alert("No se pudo exportar el PDF: svg2pdf.js no está cargado (¿sin conexión a internet / CDN bloqueado?).");
+        return;
+      }
+
+      // Registrar tipografías personalizadas (jsPDF solo admite TTF)
+      const registered = new Set();
+      const skipped = [];
+      (state.customFonts || []).forEach(f => {
+        try {
+          const b64 = String(f.dataUrl || "").split(",")[1];
+          if (!b64) throw new Error("sin datos");
+          const head = atob(b64.slice(0, 8)).split("").map(c => c.charCodeAt(0));
+          const isTTF = (head[0] === 0 && head[1] === 1 && head[2] === 0 && head[3] === 0) ||
+            String.fromCharCode(...head.slice(0, 4)) === "true";
+          if (!isTTF) throw new Error("formato no TTF");
+          const fileName = `${f.name}.ttf`;
+          doc.addFileToVFS(fileName, b64);
+          ["normal", "bold", "italic", "bolditalic"].forEach(style => doc.addFont(fileName, f.name, style));
+          registered.add(f.name);
+        } catch (err) {
+          skipped.push(f.displayName || f.name);
+        }
+      });
+      if (skipped.length) {
+        messages.push(`No se pudieron incrustar estas tipografías (jsPDF solo admite TTF): ${skipped.join(", ")}. Su texto usa una fuente de reemplazo.`);
+      }
+
+      // ¿Algún texto usa una fuente no incrustada? (las etiquetas de pantalla usan Inter → reemplazo)
+      const usesReplacement =
+        (state.settings.showLabels && state.screens.length > 0) ||
+        state.layers.some(l => l.visible && l.type === "text" &&
+          !(l.fontFamily && registered.has(l.fontFamily)));
+      if (usesReplacement) {
+        messages.push("Parte del texto (etiquetas de pantallas y/o textos sin tipografía personalizada incrustada) usa una fuente de reemplazo (Helvetica) porque la fuente original no está incrustada en el PDF.");
+      }
+
+      // Insertar el SVG en el DOM (oculto) para que svg2pdf pueda calcular estilos
+      const holder = document.createElement("div");
+      holder.style.cssText = "position:fixed;left:-99999px;top:0;visibility:hidden;pointer-events:none;";
+      holder.innerHTML = svg.replace(/^<\?xml[^>]*\?>\s*/, "");
+      document.body.appendChild(holder);
+      try {
+        const svgEl = holder.querySelector("svg");
+        const opts = { x: 0, y: 0, width: pageW, height: pageH };
+        if (typeof doc.svg === "function") await doc.svg(svgEl, opts);
+        else await window.svg2pdf.svg2pdf(svgEl, doc, opts);
+        doc.save(`led_mapping_grid_${w}x${h}px.pdf`);
+      } catch (err) {
+        alert(`Error al generar el PDF: ${err.message || err}`);
+        return;
+      } finally {
+        document.body.removeChild(holder);
+      }
+
+      if (messages.length) alert(messages.join("\n\n"));
     },
 
     exportJSON() {
