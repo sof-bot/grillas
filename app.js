@@ -4204,6 +4204,32 @@
       URL.revokeObjectURL(url);
     },
 
+    /**
+     * Aplica los datos de un proyecto (JSON de importación o proyecto por defecto) al estado:
+     * migraciones/valores por defecto, tipografías, recálculo y selección inicial.
+     * No toca la UI. Devuelve false si el formato no es válido (sin modificar el estado).
+     */
+    async applyProjectData(data) {
+      if (!data || !Array.isArray(data.screens)) return false;
+
+      state.screens = data.screens;
+      state.layers = Array.isArray(data.layers) ? data.layers : [];
+      state.customFonts = Array.isArray(data.customFonts) ? data.customFonts : [];
+
+      if (data.canvas) state.canvas = { ...state.canvas, ...data.canvas };
+      if (data.settings) state.settings = { ...state.settings, ...data.settings };
+      if (Array.isArray(data.locations)) state.locations = data.locations;
+
+      // Restaurar tipografías registradas
+      await this.restoreCustomFonts(state.customFonts);
+
+      state.screens.forEach(s => CalcEngine.recalculate(s));
+      state.selectedScreenId = state.screens.length > 0 ? state.screens[0].id : null;
+      state.selectedScreenIds = state.selectedScreenId ? [state.selectedScreenId] : [];
+      state.selectedLayerId = state.layers.length > 0 ? state.layers[state.layers.length - 1].id : null;
+      return true;
+    },
+
     async importJSON(file) {
       if (!file) return;
 
@@ -4211,23 +4237,7 @@
       reader.onload = async (e) => {
         try {
           const data = JSON.parse(e.target.result);
-          if (data && Array.isArray(data.screens)) {
-            state.screens = data.screens;
-            state.layers = Array.isArray(data.layers) ? data.layers : [];
-            state.customFonts = Array.isArray(data.customFonts) ? data.customFonts : [];
-
-            if (data.canvas) state.canvas = { ...state.canvas, ...data.canvas };
-            if (data.settings) state.settings = { ...state.settings, ...data.settings };
-            if (Array.isArray(data.locations)) state.locations = data.locations;
-
-            // Restaurar tipografías registradas
-            await this.restoreCustomFonts(state.customFonts);
-
-            state.screens.forEach(s => CalcEngine.recalculate(s));
-            state.selectedScreenId = state.screens.length > 0 ? state.screens[0].id : null;
-            state.selectedScreenIds = state.selectedScreenId ? [state.selectedScreenId] : [];
-            state.selectedLayerId = state.layers.length > 0 ? state.layers[state.layers.length - 1].id : null;
-
+          if (await this.applyProjectData(data)) {
             UIController.renderLocationsList();
             UIController.updateScreensSelector();
             UIController.updateActiveScreenForm();
@@ -4315,6 +4325,16 @@
         }
       } catch (e) {
         console.warn("Error leyendo localStorage, cargando inicial:", e);
+      }
+
+      // Sin autoguardado: proyecto por defecto (default-project.js), con el mismo flujo que la importación
+      try {
+        if (window.DEFAULT_PROJECT && Array.isArray(window.DEFAULT_PROJECT.screens) && window.DEFAULT_PROJECT.screens.length > 0) {
+          const copy = JSON.parse(JSON.stringify(window.DEFAULT_PROJECT));
+          if (await this.applyProjectData(copy)) return;
+        }
+      } catch (e) {
+        console.warn("No se pudo cargar el proyecto por defecto, usando el inicial:", e);
       }
 
       state.screens = JSON.parse(JSON.stringify(DEFAULT_INITIAL_SCREENS));
