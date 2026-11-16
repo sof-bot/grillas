@@ -187,6 +187,11 @@
       gridLineWidth: 1,
       gridLineColor: "#ffffff",
       gridBgColor: "#000000",
+      cellMode: "manual",
+      cellModPreset: "500x500",
+      cellModWidthMm: 500,
+      cellModHeightMm: 500,
+      cellTargetPx: 64,
       canvasBg: "#000000",
       distributeSpacing: 0
     },
@@ -637,6 +642,90 @@
       };
     },
 
+    /** Presets de módulo LED (mm) para modo arquitectura. */
+    CELL_MOD_PRESETS: {
+      "500x500": [500, 500],
+      "500x1000": [500, 1000],
+      "320x160": [320, 160],
+      "250x250": [250, 250]
+    },
+
+    /** Modo de celda efectivo de una pantalla (propio o global). */
+    getScreenCellMode(screen) {
+      const own = screen && screen.cellMode;
+      if (own === "manual" || own === "led_module" || own === "square_fit") return own;
+      const g = state.settings.cellMode;
+      return (g === "led_module" || g === "square_fit") ? g : "manual";
+    },
+
+    /** Ajustes efectivos de celda de una pantalla (propios o globales). */
+    getCellSettings(screen) {
+      const s = state.settings;
+      const num = (v, d, min, max) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? Math.max(min, Math.min(max, n)) : d;
+      };
+      const modW = num(screen && screen.cellModWidthMm !== undefined ? screen.cellModWidthMm : s.cellModWidthMm, 500, 1, 100000);
+      const modH = num(screen && screen.cellModHeightMm !== undefined ? screen.cellModHeightMm : s.cellModHeightMm, 500, 1, 100000);
+      const presetKey = Object.keys(this.CELL_MOD_PRESETS).find(k => {
+        const [pw, ph] = this.CELL_MOD_PRESETS[k];
+        return Math.abs(pw - modW) < 1e-6 && Math.abs(ph - modH) < 1e-6;
+      }) || "custom";
+      const targetPx = Math.round(num(screen && screen.cellTargetPx !== undefined ? screen.cellTargetPx : s.cellTargetPx, 64, 1, 4096));
+      return {
+        mode: this.getScreenCellMode(screen),
+        modPreset: presetKey,
+        modW,
+        modH,
+        targetPx
+      };
+    },
+
+    /** Calcula cols, rows efectivos y descripción real para dibujar celdas. */
+    getScreenCellGrid(screen) {
+      const { widthPx, heightPx } = screen;
+      const cs = this.getCellSettings(screen);
+      let cols = Math.max(1, Math.round(Number(screen.cols) || 1));
+      let rows = Math.max(1, Math.round(Number(screen.rows) || 1));
+      let info = "";
+
+      if (cs.mode === "led_module") {
+        const physWmm = (Number(screen.widthM) || 0) * 1000;
+        const physHmm = (Number(screen.heightM) || 0) * 1000;
+        cols = physWmm > 0 ? Math.max(1, Math.round(physWmm / cs.modW)) : 1;
+        rows = physHmm > 0 ? Math.max(1, Math.round(physHmm / cs.modH)) : 1;
+        const realW = Math.round(physWmm / cols);
+        const realH = Math.round(physHmm / rows);
+        info = `${cols} × ${rows} módulos, ${realW} × ${realH} mm`;
+      } else if (cs.mode === "square_fit") {
+        const T = cs.targetPx;
+        const cMid = widthPx / T;
+        const rMid = heightPx / T;
+        const cMin = Math.max(1, Math.floor(cMid) - 2);
+        const cMax = Math.min(widthPx, Math.ceil(cMid) + 2);
+        const rMin = Math.max(1, Math.floor(rMid) - 2);
+        const rMax = Math.min(heightPx, Math.ceil(rMid) + 2);
+        let bestScore = Infinity;
+        for (let c = cMin; c <= cMax; c++) {
+          const cw = widthPx / c;
+          for (let r = rMin; r <= rMax; r++) {
+            const ch = heightPx / r;
+            const score = Math.abs(cw - T) + Math.abs(ch - T) + 0.5 * Math.abs(cw - ch);
+            if (score < bestScore) {
+              bestScore = score;
+              cols = c;
+              rows = r;
+            }
+          }
+        }
+        info = `celda ${Math.round(widthPx / cols)} × ${Math.round(heightPx / rows)} px (${cols} × ${rows})`;
+      } else {
+        info = `${cols} × ${rows} módulos (${Math.round(widthPx / cols)} × ${Math.round(heightPx / rows)} px)`;
+      }
+
+      return { mode: cs.mode, cols, rows, info };
+    },
+
     /** Luminancia alta (color claro) para decidir texto negro. */
     isLightColor(hexColor) {
       const m = /^#([0-9A-Fa-f]{6})$/.exec(hexColor || "");
@@ -647,7 +736,8 @@
     },
 
     renderScreen(ctx, screen, isSelected, isPrimary) {
-      const { x, y, widthPx, heightPx, cols, rows, color1, color2 } = screen;
+      const { x, y, widthPx, heightPx, color1, color2 } = screen;
+      const { cols, rows } = this.getScreenCellGrid(screen);
       const mode = this.getScreenDisplayMode(screen);
 
       ctx.save();
@@ -656,13 +746,13 @@
 
       if (mode === "checker") {
         for (let r = 0; r < rows; r++) {
-          const cellY = Math.floor(y + r * rowStep);
-          const nextCellY = Math.floor(y + (r + 1) * rowStep);
+          const cellY = Math.round(y + r * rowStep);
+          const nextCellY = Math.round(y + (r + 1) * rowStep);
           const cellH = nextCellY - cellY;
 
           for (let c = 0; c < cols; c++) {
-            const cellX = Math.floor(x + c * colStep);
-            const nextCellX = Math.floor(x + (c + 1) * colStep);
+            const cellX = Math.round(x + c * colStep);
+            const nextCellX = Math.round(x + (c + 1) * colStep);
             const cellW = nextCellX - cellX;
 
             ctx.fillStyle = ((r + c) % 2 === 0) ? color1 : color2;
@@ -670,18 +760,18 @@
           }
         }
       } else {
-        // Líneas de módulo internas, alineadas a píxel (mismo redondeo que el damero)
+        // Líneas internas alineadas a píxel entero
         const drawModuleLines = (strokeStyle) => {
           ctx.strokeStyle = strokeStyle;
           ctx.lineWidth = 1;
           ctx.beginPath();
           for (let c = 1; c < cols; c++) {
-            const lx = Math.floor(x + c * colStep) + 0.5;
+            const lx = Math.round(x + c * colStep) + 0.5;
             ctx.moveTo(lx, y);
             ctx.lineTo(lx, y + heightPx);
           }
           for (let r = 1; r < rows; r++) {
-            const ly = Math.floor(y + r * rowStep) + 0.5;
+            const ly = Math.round(y + r * rowStep) + 0.5;
             ctx.moveTo(x, ly);
             ctx.lineTo(x + widthPx, ly);
           }
@@ -702,12 +792,12 @@
           // Rect de ancho w con inicio en (borde - floor(w/2)): equivale a trazo centrado
           // (+0.5 para grosor impar, sin offset para grosor par), siempre alineado a píxel.
           for (let c = 0; c <= cols; c++) {
-            const ex = c === cols ? x + widthPx : Math.floor(x + c * colStep);
-            ctx.fillRect(ex - half, y, gs.width, heightPx);
+            const ex = c === cols ? Math.round(x + widthPx) : Math.round(x + c * colStep);
+            ctx.fillRect(ex - half, Math.round(y), gs.width, heightPx);
           }
           for (let r = 0; r <= rows; r++) {
-            const ey = r === rows ? y + heightPx : Math.floor(y + r * rowStep);
-            ctx.fillRect(x, ey - half, widthPx, gs.width);
+            const ey = r === rows ? Math.round(y + heightPx) : Math.round(y + r * rowStep);
+            ctx.fillRect(Math.round(x), ey - half, widthPx, gs.width);
           }
           ctx.restore();
         } else {
@@ -1840,7 +1930,12 @@
           showModuleLines: state.settings.showModuleLines,
           gridLineWidth: state.settings.gridLineWidth,
           gridLineColor: state.settings.gridLineColor,
-          gridBgColor: state.settings.gridBgColor
+          gridBgColor: state.settings.gridBgColor,
+          cellMode: state.settings.cellMode,
+          cellModPreset: state.settings.cellModPreset,
+          cellModWidthMm: state.settings.cellModWidthMm,
+          cellModHeightMm: state.settings.cellModHeightMm,
+          cellTargetPx: state.settings.cellTargetPx
         }
       });
     },
@@ -2884,6 +2979,19 @@
         document.getElementById("opt-grid-line-color").value = gs.color;
         document.getElementById("opt-grid-bg-color").value = gs.bg;
       }
+      const cellModeSel = document.getElementById("opt-cell-mode");
+      if (cellModeSel) {
+        const cs = RenderEngine.getCellSettings(null);
+        cellModeSel.value = cs.mode;
+        const ledBox = document.getElementById("opt-cell-led-options");
+        const sqBox = document.getElementById("opt-cell-square-options");
+        if (ledBox) ledBox.classList.toggle("hidden", cs.mode !== "led_module");
+        if (sqBox) sqBox.classList.toggle("hidden", cs.mode !== "square_fit");
+        document.getElementById("opt-cell-mod-preset").value = cs.modPreset;
+        document.getElementById("opt-cell-mod-w").value = cs.modW;
+        document.getElementById("opt-cell-mod-h").value = cs.modH;
+        document.getElementById("opt-cell-target-px").value = cs.targetPx;
+      }
     },
 
     bindSettingsControls() {
@@ -2929,6 +3037,50 @@
       });
       document.getElementById("opt-grid-bg-color").addEventListener("input", (e) => {
         state.settings.gridBgColor = e.target.value;
+        this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      document.getElementById("opt-cell-mode").addEventListener("change", (e) => {
+        state.settings.cellMode = e.target.value;
+        this.updateDisplayModeControls();
+        this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      document.getElementById("opt-cell-mod-preset").addEventListener("change", (e) => {
+        const preset = e.target.value;
+        state.settings.cellModPreset = preset;
+        const dims = RenderEngine.CELL_MOD_PRESETS[preset];
+        if (dims) {
+          state.settings.cellModWidthMm = dims[0];
+          state.settings.cellModHeightMm = dims[1];
+          document.getElementById("opt-cell-mod-w").value = dims[0];
+          document.getElementById("opt-cell-mod-h").value = dims[1];
+        }
+        this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      const onGlobalModDimInput = () => {
+        const w = parseFloat(document.getElementById("opt-cell-mod-w").value);
+        const h = parseFloat(document.getElementById("opt-cell-mod-h").value);
+        if (!(w > 0) || !(h > 0)) return;
+        state.settings.cellModWidthMm = Math.max(1, w);
+        state.settings.cellModHeightMm = Math.max(1, h);
+        const cs = RenderEngine.getCellSettings(null);
+        state.settings.cellModPreset = cs.modPreset;
+        document.getElementById("opt-cell-mod-preset").value = cs.modPreset;
+        this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      };
+      document.getElementById("opt-cell-mod-w").addEventListener("input", onGlobalModDimInput);
+      document.getElementById("opt-cell-mod-h").addEventListener("input", onGlobalModDimInput);
+      document.getElementById("opt-cell-target-px").addEventListener("input", (e) => {
+        const v = parseInt(e.target.value, 10);
+        if (isNaN(v)) return;
+        state.settings.cellTargetPx = Math.max(1, Math.min(4096, v));
         this.updateActiveScreenForm();
         RenderEngine.render();
         Persistence.saveAuto();
@@ -3155,6 +3307,53 @@
             <span>Mostrar líneas de módulo (global)</span>
             <input type="checkbox" id="screen-module-lines" ${state.settings.showModuleLines !== false ? "checked" : ""}>
           </label>` : ""}
+          ${(() => {
+            const cs = RenderEngine.getCellSettings(screen);
+            const gridInfo = RenderEngine.getScreenCellGrid(screen);
+            return `
+          <div class="form-group">
+            <label for="screen-cell-mode">Modo de celda</label>
+            <select id="screen-cell-mode" class="form-select">
+              <option value="global" ${!screen.cellMode || screen.cellMode === "global" ? "selected" : ""}>Usar global</option>
+              <option value="manual" ${screen.cellMode === "manual" ? "selected" : ""}>Módulos de pantalla (actual)</option>
+              <option value="led_module" ${screen.cellMode === "led_module" ? "selected" : ""}>Módulo LED (mm)</option>
+              <option value="square_fit" ${screen.cellMode === "square_fit" ? "selected" : ""}>Cuadrada ajustada (px)</option>
+            </select>
+          </div>
+          ${cs.mode === "led_module" ? `
+          <div class="form-group">
+            <label for="screen-cell-mod-preset">Preset de módulo</label>
+            <select id="screen-cell-mod-preset" class="form-select">
+              <option value="500x500" ${cs.modPreset === "500x500" ? "selected" : ""}>500 × 500 mm</option>
+              <option value="500x1000" ${cs.modPreset === "500x1000" ? "selected" : ""}>500 × 1000 mm</option>
+              <option value="320x160" ${cs.modPreset === "320x160" ? "selected" : ""}>320 × 160 mm</option>
+              <option value="250x250" ${cs.modPreset === "250x250" ? "selected" : ""}>250 × 250 mm</option>
+              <option value="custom" ${cs.modPreset === "custom" ? "selected" : ""}>Personalizado</option>
+            </select>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="screen-cell-mod-w"><span>Ancho</span><span class="label-unit">mm</span></label>
+              <input type="number" id="screen-cell-mod-w" class="form-input" min="1" max="100000" step="1" value="${cs.modW}">
+            </div>
+            <div class="form-group">
+              <label for="screen-cell-mod-h"><span>Alto</span><span class="label-unit">mm</span></label>
+              <input type="number" id="screen-cell-mod-h" class="form-input" min="1" max="100000" step="1" value="${cs.modH}">
+            </div>
+          </div>` : ""}
+          ${cs.mode === "square_fit" ? `
+          <div class="form-group">
+            <label for="screen-cell-target-px"><span>Tamaño objetivo</span><span class="label-unit">px</span></label>
+            <input type="number" id="screen-cell-target-px" class="form-input" min="1" max="4096" step="1" value="${cs.targetPx}">
+          </div>` : ""}
+          <div class="form-group">
+            <small id="screen-cell-info" class="small-text">${gridInfo.info}</small>
+          </div>
+          ${cs.mode !== "manual" ? `
+          <div class="form-group">
+            <button type="button" id="btn-screen-cell-global" class="btn btn-secondary btn-sm">Usar global</button>
+          </div>` : ""}`;
+          })()}
         </div>
 
         <div class="editor-card">
@@ -3496,6 +3695,77 @@
         });
       }
 
+      const scrCellMode = getEl("screen-cell-mode");
+      if (scrCellMode) {
+        scrCellMode.addEventListener("change", (e) => {
+          if (e.target.value === "global") delete screen.cellMode;
+          else screen.cellMode = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+          this.updateActiveScreenForm();
+        });
+        const scrCellInfo = () => {
+          const el = getEl("screen-cell-info");
+          if (el) el.textContent = RenderEngine.getScreenCellGrid(screen).info;
+        };
+        const scrPreset = getEl("screen-cell-mod-preset");
+        if (scrPreset) {
+          scrPreset.addEventListener("change", (e) => {
+            const preset = e.target.value;
+            screen.cellModPreset = preset;
+            const dims = RenderEngine.CELL_MOD_PRESETS[preset];
+            if (dims) {
+              screen.cellModWidthMm = dims[0];
+              screen.cellModHeightMm = dims[1];
+              getEl("screen-cell-mod-w").value = dims[0];
+              getEl("screen-cell-mod-h").value = dims[1];
+            }
+            scrCellInfo();
+            RenderEngine.render();
+            Persistence.saveAuto();
+          });
+          const onScreenModDimInput = () => {
+            const w = parseFloat(getEl("screen-cell-mod-w").value);
+            const h = parseFloat(getEl("screen-cell-mod-h").value);
+            if (!(w > 0) || !(h > 0)) return;
+            screen.cellModWidthMm = Math.max(1, w);
+            screen.cellModHeightMm = Math.max(1, h);
+            const cs = RenderEngine.getCellSettings(screen);
+            screen.cellModPreset = cs.modPreset;
+            scrPreset.value = cs.modPreset;
+            scrCellInfo();
+            RenderEngine.render();
+            Persistence.saveAuto();
+          };
+          getEl("screen-cell-mod-w").addEventListener("input", onScreenModDimInput);
+          getEl("screen-cell-mod-h").addEventListener("input", onScreenModDimInput);
+        }
+        const scrTarget = getEl("screen-cell-target-px");
+        if (scrTarget) {
+          scrTarget.addEventListener("input", (e) => {
+            const v = parseInt(e.target.value, 10);
+            if (isNaN(v)) return;
+            screen.cellTargetPx = Math.max(1, Math.min(4096, v));
+            scrCellInfo();
+            RenderEngine.render();
+            Persistence.saveAuto();
+          });
+        }
+        const btnCellGlobal = getEl("btn-screen-cell-global");
+        if (btnCellGlobal) {
+          btnCellGlobal.addEventListener("click", () => {
+            delete screen.cellMode;
+            delete screen.cellModPreset;
+            delete screen.cellModWidthMm;
+            delete screen.cellModHeightMm;
+            delete screen.cellTargetPx;
+            RenderEngine.render();
+            Persistence.saveAuto();
+            this.updateActiveScreenForm();
+          });
+        }
+      }
+
       getEl("screen-fixed-mode").addEventListener("change", (e) => {
         screen.fixedMode = e.target.value;
         this.updateActiveScreenForm();
@@ -3647,6 +3917,9 @@
           ? "Cálculo exacto: píxeles enteros y coincide con módulos."
           : `${warnings.join("<br>")}`;
       }
+
+      const cellInfoEl = getEl("screen-cell-info");
+      if (cellInfoEl) cellInfoEl.textContent = RenderEngine.getScreenCellGrid(screen).info;
 
       this.updateScreensSelector();
       this.updateSummaryTable();
@@ -3974,22 +4247,66 @@
       // Pantallas
       state.screens.forEach((screen, idx) => {
         if (screen.visible === false) return;
-        const { x, y, widthPx, heightPx, cols, rows, color1, color2 } = screen;
+        const { x, y, widthPx, heightPx, cols: physCols, rows: physRows, color1, color2 } = screen;
+        const { cols, rows } = RenderEngine.getScreenCellGrid(screen);
+        const mode = RenderEngine.getScreenDisplayMode(screen);
         const colStep = widthPx / cols;
         const rowStep = heightPx / rows;
         const gid = uniqueId(screen.label, `Pantalla_${idx + 1}`);
         out.push(`  <g id="${gid}" data-name="${esc(screen.label)}">`);
-        out.push(`    <g id="${gid}_modulos" shape-rendering="crispEdges">`);
-        for (let r = 0; r < rows; r++) {
-          const cellY = Math.floor(y + r * rowStep);
-          const cellH = Math.floor(y + (r + 1) * rowStep) - cellY;
-          for (let c = 0; c < cols; c++) {
-            const cellX = Math.floor(x + c * colStep);
-            const cellW = Math.floor(x + (c + 1) * colStep) - cellX;
-            out.push(`      <rect x="${cellX}" y="${cellY}" width="${cellW}" height="${cellH}" fill="${esc(((r + c) % 2 === 0) ? color1 : color2)}"/>`);
+
+        if (mode === "checker") {
+          out.push(`    <g id="${gid}_modulos" shape-rendering="crispEdges">`);
+          for (let r = 0; r < rows; r++) {
+            const cellY = Math.round(y + r * rowStep);
+            const cellH = Math.round(y + (r + 1) * rowStep) - cellY;
+            for (let c = 0; c < cols; c++) {
+              const cellX = Math.round(x + c * colStep);
+              const cellW = Math.round(x + (c + 1) * colStep) - cellX;
+              out.push(`      <rect x="${cellX}" y="${cellY}" width="${cellW}" height="${cellH}" fill="${esc(((r + c) % 2 === 0) ? color1 : color2)}"/>`);
+            }
+          }
+          out.push(`    </g>`);
+        } else if (mode === "bw") {
+          const gs = RenderEngine.getGridStyle(screen);
+          const half = Math.floor(gs.width / 2);
+          const clipId = uniqueId(`${gid}_clip`, "clip");
+          defs.push(`    <clipPath id="${clipId}"><rect x="${num(x)}" y="${num(y)}" width="${num(widthPx)}" height="${num(heightPx)}"/></clipPath>`);
+          out.push(`    <g id="${gid}_grilla" clip-path="url(#${clipId})" shape-rendering="crispEdges">`);
+          out.push(`      <rect x="${num(x)}" y="${num(y)}" width="${num(widthPx)}" height="${num(heightPx)}" fill="${esc(gs.bg)}"/>`);
+          for (let c = 0; c <= cols; c++) {
+            const ex = c === cols ? Math.round(x + widthPx) : Math.round(x + c * colStep);
+            out.push(`      <rect x="${ex - half}" y="${num(y)}" width="${gs.width}" height="${num(heightPx)}" fill="${esc(gs.color)}"/>`);
+          }
+          for (let r = 0; r <= rows; r++) {
+            const ey = r === rows ? Math.round(y + heightPx) : Math.round(y + r * rowStep);
+            out.push(`      <rect x="${num(x)}" y="${ey - half}" width="${num(widthPx)}" height="${gs.width}" fill="${esc(gs.color)}"/>`);
+          }
+          out.push(`    </g>`);
+        } else {
+          const dir = state.settings.gradientDirection;
+          const gradId = uniqueId(`${gid}_grad`, "grad");
+          if (dir === "radial") {
+            defs.push(`    <radialGradient id="${gradId}" gradientUnits="userSpaceOnUse" cx="${num(x + widthPx / 2)}" cy="${num(y + heightPx / 2)}" r="${num(Math.hypot(widthPx, heightPx) / 2)}"><stop offset="0" stop-color="${esc(color1)}"/><stop offset="1" stop-color="${esc(color2)}"/></radialGradient>`);
+          } else {
+            const x2 = dir === "vertical" ? x : x + widthPx;
+            const y2 = dir === "horizontal" ? y : y + heightPx;
+            defs.push(`    <linearGradient id="${gradId}" gradientUnits="userSpaceOnUse" x1="${num(x)}" y1="${num(y)}" x2="${num(x2)}" y2="${num(y2)}"><stop offset="0" stop-color="${esc(color1)}"/><stop offset="1" stop-color="${esc(color2)}"/></linearGradient>`);
+          }
+          out.push(`    <rect id="${gid}_fondo" x="${num(x)}" y="${num(y)}" width="${num(widthPx)}" height="${num(heightPx)}" fill="url(#${gradId})"/>`);
+          if (state.settings.showModuleLines !== false) {
+            out.push(`    <g id="${gid}_lineas" stroke="#000000" stroke-opacity="0.35" stroke-width="1" shape-rendering="crispEdges">`);
+            for (let c = 1; c < cols; c++) {
+              const lx = Math.round(x + c * colStep) + 0.5;
+              out.push(`      <line x1="${lx}" y1="${num(y)}" x2="${lx}" y2="${num(y + heightPx)}"/>`);
+            }
+            for (let r = 1; r < rows; r++) {
+              const ly = Math.round(y + r * rowStep) + 0.5;
+              out.push(`      <line x1="${num(x)}" y1="${ly}" x2="${num(x + widthPx)}" y2="${ly}"/>`);
+            }
+            out.push(`    </g>`);
           }
         }
-        out.push(`    </g>`);
         out.push(`    <rect x="${num(x + 0.5)}" y="${num(y + 0.5)}" width="${num(widthPx - 1)}" height="${num(heightPx - 1)}" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="1"/>`);
 
         if (state.settings.showLabels) {
@@ -3999,7 +4316,7 @@
             ? screen.labelFontSize
             : Math.max(14, Math.min(64, Math.floor(Math.min(widthPx, heightPx) / 6)));
           const fontWeight = screen.labelFontWeight || "300";
-          const fontColor = screen.labelColor || "#ffffff";
+          const fontColor = screen.labelColor || (mode === "bw" && RenderEngine.isLightColor(RenderEngine.getGridStyle(screen).bg) ? "#000000" : "#ffffff");
           const fam = esc(FONT_MAIN.replace(/"/g, "'"));
           const showSub = state.settings.showSublabels && heightPx >= 70 && widthPx >= 90;
           const labelY = showSub ? centerY - fontSize * 0.45 : centerY;
@@ -4009,7 +4326,7 @@
             const subFont = Math.max(10, Math.floor(fontSize * 0.38));
             const pitchText = screen.pitchReal ? `${screen.pitchReal.toFixed(3)} mm` : `${screen.pitch} mm`;
             const line1 = `${screen.location} • P${pitchText}`;
-            const line2 = `${widthPx}×${heightPx} px (${cols}×${rows} mod)`;
+            const line2 = `${widthPx}×${heightPx} px (${physCols}×${physRows} mod)`;
             out.push(`    <text id="${gid}_info1" x="${num(centerX)}" y="${num(centerY + fontSize * 0.35)}" font-size="${subFont}" font-weight="300" fill-opacity="0.8" ${common}>${esc(line1)}</text>`);
             out.push(`    <text id="${gid}_info2" x="${num(centerX)}" y="${num(centerY + fontSize * 0.35 + subFont * 1.35)}" font-size="${subFont}" font-weight="300" fill-opacity="0.8" ${common}>${esc(line2)}</text>`);
           }
