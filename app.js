@@ -522,6 +522,7 @@
       let maxX = 0;
       let maxY = 0;
       state.screens.forEach(s => {
+        if (s.visible === false) return;
         const right = s.x + s.widthPx;
         const bottom = s.y + s.heightPx;
         if (right > maxX) maxX = right;
@@ -571,6 +572,7 @@
 
       // 2. Pantallas LED
       state.screens.forEach(screen => {
+        if (screen.visible === false) return;
         const isSelected = state.selectedScreenIds.includes(screen.id);
         const isPrimary = screen.id === state.selectedScreenId;
         this.renderScreen(ctx, screen, isSelected, isPrimary);
@@ -1270,6 +1272,7 @@
     getScreenAt(canvasX, canvasY) {
       for (let i = state.screens.length - 1; i >= 0; i--) {
         const s = state.screens[i];
+        if (s.visible === false) continue;
         if (
           canvasX >= s.x &&
           canvasX <= s.x + s.widthPx &&
@@ -1348,7 +1351,7 @@
         state.interaction.dragInitialPositions = {};
         state.selectedScreenIds.forEach(id => {
           const s = state.screens.find(sc => sc.id === id);
-          if (s) {
+          if (s && s.visible !== false) {
             state.interaction.dragInitialPositions[id] = { x: s.x, y: s.y };
           }
         });
@@ -1483,7 +1486,7 @@
         ];
 
         state.screens.forEach(other => {
-          if (state.selectedScreenIds.includes(other.id)) return;
+          if (state.selectedScreenIds.includes(other.id) || other.visible === false) return;
           const ocX = other.x + other.widthPx / 2;
           const oRight = other.x + other.widthPx;
           const ocY = other.y + other.heightPx / 2;
@@ -1584,6 +1587,7 @@
         if (Math.abs(x2 - x1) > 4 || Math.abs(y2 - y1) > 4) {
           const selected = [];
           state.screens.forEach(s => {
+            if (s.visible === false) return;
             const sx2 = s.x + s.widthPx;
             const sy2 = s.y + s.heightPx;
             const intersects = !(s.x > x2 || sx2 < x1 || s.y > y2 || sy2 < y1);
@@ -1702,7 +1706,7 @@
    * =========================================================================== */
   const AlignmentEngine = {
     getSelectedScreens() {
-      return state.screens.filter(s => state.selectedScreenIds.includes(s.id));
+      return state.screens.filter(s => s.visible !== false && state.selectedScreenIds.includes(s.id));
     },
 
     getSelectionBounds(selected) {
@@ -3037,7 +3041,7 @@
       state.screens.forEach(s => {
         const opt = document.createElement("option");
         opt.value = s.id;
-        opt.textContent = `${s.label} (${s.location}) - ${s.widthPx}×${s.heightPx} px`;
+        opt.textContent = `${s.label} (${s.location}) - ${s.widthPx}×${s.heightPx} px${s.visible === false ? " [oculta]" : ""}`;
         select.appendChild(opt);
       });
 
@@ -3682,7 +3686,16 @@
         const pitchReal = screen.pitchReal ? `${screen.pitchReal.toFixed(3)} mm` : `${screen.pitch.toFixed(3)} mm`;
 
         row.innerHTML = `
-          <td><span class="tag-label">${screen.label}</span></td>
+          <td>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button type="button" class="layer-item-btn screen-vis-btn ${screen.visible === false ? "inactive" : ""}" title="${screen.visible === false ? "Mostrar pantalla" : "Ocultar pantalla"}">
+                ${screen.visible === false
+                  ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+                  : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`}
+              </button>
+              <span class="tag-label" style="${screen.visible === false ? "opacity:0.4;" : ""}">${screen.label}</span>
+            </div>
+          </td>
           <td>${screen.location}</td>
           <td>${pitchNom}</td>
           <td><strong>${pitchReal}</strong></td>
@@ -3696,6 +3709,15 @@
             </span>
           </td>
         `;
+
+        row.querySelector(".screen-vis-btn").addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          screen.visible = screen.visible === false;
+          this.updateSummaryTable();
+          this.updateSelectionHint();
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
 
         row.addEventListener("click", (e) => {
           state.selectedLayerId = null;
@@ -3895,6 +3917,7 @@
 
       // 1. Dibujar pantallas
       state.screens.forEach(screen => {
+        if (screen.visible === false) return;
         RenderEngine.renderScreen(oCtx, screen, false, false);
       });
 
@@ -3950,6 +3973,7 @@
 
       // Pantallas
       state.screens.forEach((screen, idx) => {
+        if (screen.visible === false) return;
         const { x, y, widthPx, heightPx, cols, rows, color1, color2 } = screen;
         const colStep = widthPx / cols;
         const rowStep = heightPx / rows;
