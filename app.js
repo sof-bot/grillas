@@ -1984,7 +1984,6 @@
       this.bindScreenListControls();
       this.bindLayersControls();
       this.bindSettingsControls();
-      this.bindLandingScreen();
       this.renderLocationsList();
       this.updateScreensSelector();
       this.updateActiveScreenForm();
@@ -2021,25 +2020,6 @@
       hint.textContent = count === 1
         ? "1 pantalla seleccionada"
         : `${count} pantallas seleccionadas`;
-    },
-
-    bindLandingScreen() {
-      const landing = document.getElementById("landing-screen");
-      const enterBtn = document.getElementById("btn-enter-app");
-      const showLandingBtn = document.getElementById("btn-show-landing");
-
-      if (enterBtn && landing) {
-        enterBtn.addEventListener("click", () => {
-          landing.classList.add("hidden");
-          setTimeout(() => ViewportEngine.zoomToFit(), 100);
-        });
-      }
-
-      if (showLandingBtn && landing) {
-        showLandingBtn.addEventListener("click", () => {
-          landing.classList.remove("hidden");
-        });
-      }
     },
 
     bindTabNavigation() {

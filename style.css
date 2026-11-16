@@ -72,65 +72,6 @@ a {
 }
 
 /* 3. PORTADA SOBRIA */
-.landing-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  background-color: #000000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  opacity: 1;
-  visibility: visible;
-  transition: opacity 0.2s ease, visibility 0.2s ease;
-}
-
-.landing-overlay.hidden {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.landing-card {
-  max-width: 540px;
-  width: 100%;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 36px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.landing-title {
-  font-size: 22px;
-  font-weight: 300;
-  letter-spacing: -0.01em;
-  color: #ffffff;
-}
-
-.landing-subtitle {
-  font-size: 13px;
-  font-weight: 300;
-  color: var(--text-secondary);
-  margin-top: 3px;
-}
-
-.landing-description p {
-  color: var(--text-secondary);
-  font-size: 12.5px;
-  line-height: 1.6;
-  font-weight: 300;
-}
-
-.landing-actions {
-  display: flex;
-  justify-content: flex-start;
-  padding-top: 6px;
-}
-
 .btn-large {
   padding: 8px 20px;
   font-size: 12.5px;
