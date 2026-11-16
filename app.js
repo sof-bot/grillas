@@ -1493,6 +1493,27 @@
         return;
       }
 
+      // Atajos con Ctrl / Cmd: deshacer, rehacer, copiar, cortar, pegar, duplicar
+      if (e.ctrlKey || e.metaKey) {
+        const k = e.key.toLowerCase();
+        if (k === "z" && !e.shiftKey) { e.preventDefault(); HistoryEngine.undo(); return; }
+        if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); HistoryEngine.redo(); return; }
+        if (k === "c") { if (ClipboardEngine.copy()) e.preventDefault(); return; }
+        if (k === "x") { if (ClipboardEngine.hasSelection()) { e.preventDefault(); ClipboardEngine.cut(); } return; }
+        if (k === "v") { e.preventDefault(); ClipboardEngine.paste(); return; }
+        if (k === "d") { e.preventDefault(); ClipboardEngine.duplicateSelection(); return; }
+        return;
+      }
+
+      // Suprimir / Borrar elimina la selección (se puede deshacer)
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (ClipboardEngine.hasSelection()) {
+          e.preventDefault();
+          ClipboardEngine.deleteSelection();
+        }
+        return;
+      }
+
       const step = e.shiftKey ? 10 : 1;
       let dx = 0;
       let dy = 0;
@@ -1655,6 +1676,304 @@
 
 
   /* ===========================================================================
+   * 8.5 HISTORY ENGINE (Deshacer / Rehacer) y CLIPBOARD ENGINE (Copiar / Pegar)
+   * =========================================================================== */
+  const HistoryEngine = {
+    stack: [],
+    index: -1,
+    maxSteps: 100,
+    btnUndo: null,
+    btnRedo: null,
+
+    /** Serializa solo el documento (sin selección, zoom ni valores derivados). */
+    serialize() {
+      return JSON.stringify({
+        screens: state.screens,
+        layers: state.layers,
+        locations: state.locations,
+        canvas: {
+          mode: state.canvas.mode,
+          manualWidth: state.canvas.manualWidth,
+          manualHeight: state.canvas.manualHeight
+        },
+        canvasBg: state.settings.canvasBg
+      });
+    },
+
+    takeSnapshot() {
+      return {
+        doc: this.serialize(),
+        sel: {
+          screens: [...state.selectedScreenIds],
+          screen: state.selectedScreenId,
+          layer: state.selectedLayerId
+        }
+      };
+    },
+
+    /** Reinicia el historial con el estado actual como punto de partida. */
+    reset() {
+      this.initButtons();
+      this.stack = [this.takeSnapshot()];
+      this.index = 0;
+      this.updateButtons();
+    },
+
+    /** Guarda un paso nuevo si el documento cambió. Se llama desde Persistence.saveAuto(). */
+    commit() {
+      const it = state.interaction;
+      // No registrar pasos intermedios mientras se arrastra, escala o selecciona
+      if (it.layerAction || it.draggingScreenId || it.marquee.active) return;
+      if (this.index < 0) return;
+
+      const doc = this.serialize();
+      if (doc === this.stack[this.index].doc) return;
+
+      this.stack = this.stack.slice(0, this.index + 1);
+      this.stack.push(this.takeSnapshot());
+      if (this.stack.length > this.maxSteps) {
+        this.stack.shift();
+      }
+      this.index = this.stack.length - 1;
+      this.updateButtons();
+    },
+
+    undo() {
+      // Asegurar que lo último que se editó quede registrado antes de retroceder
+      clearTimeout(Persistence.saveTimeout);
+      this.commit();
+      if (this.index <= 0) return;
+      this.index--;
+      this.apply(this.stack[this.index]);
+    },
+
+    redo() {
+      clearTimeout(Persistence.saveTimeout);
+      this.commit();
+      if (this.index >= this.stack.length - 1) return;
+      this.index++;
+      this.apply(this.stack[this.index]);
+    },
+
+    apply(snap) {
+      const d = JSON.parse(snap.doc);
+
+      state.screens = d.screens;
+      state.layers = d.layers;
+      state.locations = d.locations;
+      state.canvas = Object.assign({}, state.canvas, d.canvas);
+      state.settings.canvasBg = d.canvasBg;
+
+      state.selectedScreenIds = snap.sel.screens.filter(id => state.screens.some(s => s.id === id));
+      state.selectedScreenId = state.screens.some(s => s.id === snap.sel.screen)
+        ? snap.sel.screen
+        : (state.selectedScreenIds[0] || null);
+      state.selectedLayerId = state.layers.some(l => l.id === snap.sel.layer) ? snap.sel.layer : null;
+
+      // Sincronizar controles de la barra superior
+      const bgSel = document.getElementById("canvas-bg-select");
+      if (bgSel) bgSel.value = state.settings.canvasBg;
+      const modeSel = document.getElementById("canvas-mode-select");
+      if (modeSel) modeSel.value = state.canvas.mode;
+      const manualDims = document.getElementById("manual-canvas-dimensions");
+      if (manualDims) manualDims.classList.toggle("hidden", state.canvas.mode !== "manual");
+      const inW = document.getElementById("canvas-width-input");
+      if (inW) inW.value = state.canvas.manualWidth;
+      const inH = document.getElementById("canvas-height-input");
+      if (inH) inH.value = state.canvas.manualHeight;
+
+      UIController.renderLocationsList();
+      UIController.updateScreensSelector();
+      UIController.updateActiveScreenForm();
+      UIController.updateLayersList();
+      UIController.updateActiveLayerForm();
+      UIController.updateSummaryTable();
+      UIController.updateSelectionHint();
+      RenderEngine.render();
+
+      // Alinear el paso actual con el estado real (por si algún cálculo redondeó algo)
+      this.stack[this.index].doc = this.serialize();
+      this.updateButtons();
+      Persistence.saveAuto();
+    },
+
+    initButtons() {
+      if (this.btnUndo) return;
+      const ref = document.getElementById("btn-zoom-out");
+      if (!ref || !ref.parentElement || !ref.parentElement.parentNode) return;
+
+      const make = (text, title, handler) => {
+        const b = document.createElement("button");
+        b.className = "hud-btn";
+        b.textContent = text;
+        b.title = title;
+        b.addEventListener("click", handler);
+        return b;
+      };
+
+      this.btnUndo = make("\u21B6", "Deshacer (Ctrl+Z)", () => this.undo());
+      this.btnRedo = make("\u21B7", "Rehacer (Ctrl+Y)", () => this.redo());
+
+      const group = document.createElement("div");
+      group.className = "hud-controls-group";
+      group.appendChild(this.btnUndo);
+      group.appendChild(this.btnRedo);
+      ref.parentElement.parentNode.insertBefore(group, ref.parentElement);
+    },
+
+    updateButtons() {
+      const setState = (btn, enabled) => {
+        if (!btn) return;
+        btn.disabled = !enabled;
+        btn.style.opacity = enabled ? "1" : "0.35";
+        btn.style.pointerEvents = enabled ? "auto" : "none";
+      };
+      setState(this.btnUndo, this.index > 0);
+      setState(this.btnRedo, this.index < this.stack.length - 1);
+    }
+  };
+
+
+  const ClipboardEngine = {
+    clip: null,
+    pasteCount: 0,
+
+    hasSelection() {
+      if (state.selectedLayerId && state.layers.some(l => l.id === state.selectedLayerId)) return true;
+      return state.selectedScreenIds.length > 0;
+    },
+
+    clone(obj) {
+      return JSON.parse(JSON.stringify(obj));
+    },
+
+    /** Copia la selección actual (capa o pantallas) al portapapeles interno. */
+    copy() {
+      if (state.selectedLayerId) {
+        const l = state.layers.find(ly => ly.id === state.selectedLayerId);
+        if (!l) return false;
+        this.clip = { kind: "layer", items: [this.clone(l)] };
+      } else if (state.selectedScreenIds.length > 0) {
+        const items = state.screens
+          .filter(s => state.selectedScreenIds.includes(s.id))
+          .map(s => this.clone(s));
+        if (items.length === 0) return false;
+        this.clip = { kind: "screen", items };
+      } else {
+        return false;
+      }
+      this.pasteCount = 0;
+      return true;
+    },
+
+    cut() {
+      if (!this.copy()) return;
+      this.deleteSelection();
+    },
+
+    paste() {
+      if (!this.clip) return;
+      this.pasteCount++;
+      this.insert(this.clip.kind, this.clip.items, 20 * this.pasteCount);
+    },
+
+    /** Duplica la selección con un pequeño desplazamiento (no usa el portapapeles). */
+    duplicateSelection() {
+      if (state.selectedLayerId) {
+        const l = state.layers.find(ly => ly.id === state.selectedLayerId);
+        if (l) this.insert("layer", [this.clone(l)], 20);
+      } else if (state.selectedScreenIds.length > 0) {
+        const items = state.screens
+          .filter(s => state.selectedScreenIds.includes(s.id))
+          .map(s => this.clone(s));
+        if (items.length > 0) this.insert("screen", items, 20);
+      }
+    },
+
+    uniqueScreenLabel(base) {
+      const root = String(base).replace(/ copia( \d+)?$/, "");
+      let candidate = `${root} copia`;
+      let n = 2;
+      while (state.screens.some(s => s.label === candidate)) {
+        candidate = `${root} copia ${n++}`;
+      }
+      return candidate;
+    },
+
+    uniqueLayerName(base) {
+      const root = String(base).replace(/ \(copia( \d+)?\)$/, "");
+      let candidate = `${root} (copia)`;
+      let n = 2;
+      while (state.layers.some(l => l.name === candidate)) {
+        candidate = `${root} (copia ${n++})`;
+      }
+      return candidate;
+    },
+
+    insert(kind, items, offset) {
+      const stamp = Date.now();
+
+      if (kind === "layer") {
+        let lastId = null;
+        items.forEach((orig, i) => {
+          const c = this.clone(orig);
+          c.id = `layer_${stamp}_${i}_${Math.floor(Math.random() * 1000)}`;
+          c.name = this.uniqueLayerName(orig.name);
+          c.x = Math.max(0, orig.x + offset);
+          c.y = Math.max(0, orig.y + offset);
+          state.layers.push(c);
+          lastId = c.id;
+        });
+        state.selectedLayerId = lastId;
+        state.selectedScreenIds = [];
+        state.selectedScreenId = null;
+      } else {
+        const newIds = [];
+        items.forEach((orig, i) => {
+          const c = this.clone(orig);
+          c.id = `screen_${stamp}_${i}_${Math.floor(Math.random() * 1000)}`;
+          c.label = this.uniqueScreenLabel(orig.label);
+          c.x = Math.max(0, orig.x + offset);
+          c.y = Math.max(0, orig.y + offset);
+          state.screens.push(c);
+          newIds.push(c.id);
+        });
+        state.selectedScreenIds = newIds;
+        state.selectedScreenId = newIds[0] || null;
+        state.selectedLayerId = null;
+      }
+
+      this.refreshUI();
+    },
+
+    deleteSelection() {
+      if (state.selectedLayerId) {
+        LayersEngine.deleteLayer(state.selectedLayerId);
+        UIController.updateSelectionHint();
+        return;
+      }
+      if (state.selectedScreenIds.length === 0) return;
+
+      state.screens = state.screens.filter(s => !state.selectedScreenIds.includes(s.id));
+      state.selectedScreenId = state.screens.length > 0 ? state.screens[0].id : null;
+      state.selectedScreenIds = state.selectedScreenId ? [state.selectedScreenId] : [];
+      this.refreshUI();
+    },
+
+    refreshUI() {
+      UIController.updateScreensSelector();
+      UIController.updateActiveScreenForm();
+      UIController.updateLayersList();
+      UIController.updateActiveLayerForm();
+      UIController.updateSummaryTable();
+      UIController.updateSelectionHint();
+      RenderEngine.render();
+      Persistence.saveAuto();
+    }
+  };
+
+
+  /* ===========================================================================
    * 9. UI CONTROLLER (Formularios, Capas, Tipografías, Tabla Resumen)
    * =========================================================================== */
   const UIController = {
@@ -1699,8 +2018,8 @@
       }
 
       const count = state.selectedScreenIds.length;
-      hint.textContent = count === 1 
-        ? "1 pantalla seleccionada" 
+      hint.textContent = count === 1
+        ? "1 pantalla seleccionada"
         : `${count} pantallas seleccionadas`;
     },
 
@@ -2968,8 +3287,8 @@
 
       if (alertBox && alertText) {
         alertBox.className = `calc-alert ${isExact ? "exact" : "warning"}`;
-        alertText.innerHTML = isExact 
-          ? "Cálculo exacto: píxeles enteros y coincide con módulos." 
+        alertText.innerHTML = isExact
+          ? "Cálculo exacto: píxeles enteros y coincide con módulos."
           : `${warnings.join("<br>")}`;
       }
 
@@ -3331,6 +3650,7 @@
     saveAuto() {
       clearTimeout(this.saveTimeout);
       this.saveTimeout = setTimeout(() => {
+        HistoryEngine.commit();
         try {
           const projectData = {
             version: "2.0",
@@ -3343,7 +3663,7 @@
             customFonts: state.customFonts
           };
           localStorage.setItem(STORAGE_KEY, JSON.stringify(projectData));
-          
+
           const statusEl = document.getElementById("autosave-status");
           if (statusEl) {
             statusEl.textContent = `Guardado: ${new Date().toLocaleTimeString()}`;
@@ -3396,6 +3716,7 @@
     InteractionEngine.init();
     await Persistence.init();
     UIController.init();
+    HistoryEngine.reset();
 
     RenderEngine.render();
     setTimeout(() => {
