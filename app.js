@@ -187,6 +187,17 @@
       gridLineWidth: 1,
       gridLineColor: "#ffffff",
       gridBgColor: "#000000",
+      testCard: {
+        colorBar: true,
+        bwBar: true,
+        circle: true,
+        cross: true,
+        diagonals: true,
+        circleStroke: "#ffffff",
+        circleFillEnabled: false,
+        circleFill: "#000000",
+        lineColor: "#ffffff"
+      },
       cellMode: "manual",
       cellModPreset: "500x500",
       cellModWidthMm: 500,
@@ -624,9 +635,60 @@
     /** Modo de visualización efectivo de una pantalla (propio o global). */
     getScreenDisplayMode(screen) {
       const own = screen && screen.displayMode;
-      if (own === "checker" || own === "bw" || own === "gradient") return own;
+      if (own === "checker" || own === "bw" || own === "gradient" || own === "testcard") return own;
       const g = state.settings.displayMode;
-      return (g === "bw" || g === "gradient") ? g : "checker";
+      return (g === "bw" || g === "gradient" || g === "testcard") ? g : "checker";
+    },
+
+    /** Ajustes efectivos de test card (propios de la pantalla o globales). */
+    getTestCardSettings(screen) {
+      const def = {
+        colorBar: true,
+        bwBar: true,
+        circle: true,
+        cross: true,
+        diagonals: true,
+        circleStroke: "#ffffff",
+        circleFillEnabled: false,
+        circleFill: "#000000",
+        lineColor: "#ffffff"
+      };
+      const g = (state.settings && state.settings.testCard) || {};
+      const own = (screen && screen.testCard) || {};
+      const src = { ...def, ...g, ...own };
+      const hex = (v, d) => (typeof v === "string" && /^#[0-9A-Fa-f]{6}$/.test(v)) ? v : d;
+      return {
+        colorBar: src.colorBar !== false,
+        bwBar: src.bwBar !== false,
+        circle: src.circle !== false,
+        cross: src.cross !== false,
+        diagonals: src.diagonals !== false,
+        circleStroke: hex(src.circleStroke, def.circleStroke),
+        circleFillEnabled: !!src.circleFillEnabled,
+        circleFill: hex(src.circleFill, def.circleFill),
+        lineColor: hex(src.lineColor, def.lineColor)
+      };
+    },
+
+    /** Geometría entera y escalada de los elementos del Test Card dentro de la pantalla. */
+    getTestCardLayout(screen) {
+      const sx = Math.round(screen.x);
+      const sy = Math.round(screen.y);
+      const sw = Math.max(1, Math.round(screen.widthPx));
+      const sh = Math.max(1, Math.round(screen.heightPx));
+      const strokeW = Math.max(1, Math.min(8, Math.round(Math.min(sw, sh) / 250)));
+      const mx = Math.min(Math.floor((sw - 2) / 2), Math.max(1, Math.round(sw * 0.10)));
+      const barW = Math.max(2, sw - 2 * mx);
+      const barX = sx + Math.round((sw - barW) / 2);
+      const maxHalfH = Math.max(2, Math.floor(sh / 2) - 2);
+      const barH = Math.min(maxHalfH, Math.max(2, Math.round(sh * 0.14)));
+      const topBarY = Math.max(sy + 1, Math.min(sy + Math.floor(sh / 2) - barH - 1, Math.round(sy + sh * 0.25 - barH / 2)));
+      const botBarY = Math.max(sy + Math.ceil(sh / 2) + 1, Math.min(sy + sh - barH - 1, Math.round(sy + sh * 0.75 - barH / 2)));
+      const cx = Math.round(sx + sw / 2);
+      const cy = Math.round(sy + sh / 2);
+      const maxR = Math.max(1, Math.floor((Math.min(sw, sh) - strokeW) / 2) - 1);
+      const r = Math.min(maxR, Math.max(1, Math.round(sh * 0.35)));
+      return { sx, sy, sw, sh, strokeW, barX, barW, barH, topBarY, botBarY, cx, cy, r };
     },
 
     /** Estilo efectivo de la grilla: valores propios de la pantalla o globales. */
@@ -735,6 +797,93 @@
       return lum > 0.6;
     },
 
+    /** Dibuja el fondo y líneas de grilla alineadas a píxel entero. */
+    drawGridBackground(ctx, screen, cols, rows) {
+      const { x, y, widthPx, heightPx } = screen;
+      const colStep = widthPx / cols;
+      const rowStep = heightPx / rows;
+      const gs = this.getGridStyle(screen);
+      const half = Math.floor(gs.width / 2);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, widthPx, heightPx);
+      ctx.clip();
+      ctx.fillStyle = gs.bg;
+      ctx.fillRect(x, y, widthPx, heightPx);
+      ctx.fillStyle = gs.color;
+      // Rect de ancho w con inicio en (borde - floor(w/2)): equivale a trazo centrado
+      // (+0.5 para grosor impar, sin offset para grosor par), siempre alineado a píxel.
+      for (let c = 0; c <= cols; c++) {
+        const ex = c === cols ? Math.round(x + widthPx) : Math.round(x + c * colStep);
+        ctx.fillRect(ex - half, Math.round(y), gs.width, heightPx);
+      }
+      for (let r = 0; r <= rows; r++) {
+        const ey = r === rows ? Math.round(y + heightPx) : Math.round(y + r * rowStep);
+        ctx.fillRect(Math.round(x), ey - half, widthPx, gs.width);
+      }
+      ctx.restore();
+    },
+
+    /** Dibuja el modo Test card sobre la grilla de fondo (grilla, rectángulos, círculo, cruz y diagonales). */
+    renderTestCard(ctx, screen, cols, rows) {
+      this.drawGridBackground(ctx, screen, cols, rows);
+      const tc = this.getTestCardSettings(screen);
+      const L = this.getTestCardLayout(screen);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(L.sx, L.sy, L.sw, L.sh);
+      ctx.clip();
+
+      if (tc.colorBar) {
+        const g = ctx.createLinearGradient(L.barX, L.topBarY, L.barX + L.barW, L.topBarY);
+        const stops = ["#ff0000", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff"];
+        stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
+        ctx.fillStyle = g;
+        ctx.fillRect(L.barX, L.topBarY, L.barW, L.barH);
+      }
+
+      if (tc.bwBar) {
+        const g = ctx.createLinearGradient(L.barX, L.botBarY, L.barX + L.barW, L.botBarY);
+        g.addColorStop(0, "#ffffff");
+        g.addColorStop(1, "#000000");
+        ctx.fillStyle = g;
+        ctx.fillRect(L.barX, L.botBarY, L.barW, L.barH);
+      }
+
+      if (tc.circle) {
+        ctx.beginPath();
+        ctx.arc(L.cx, L.cy, L.r, 0, Math.PI * 2);
+        if (tc.circleFillEnabled) {
+          ctx.fillStyle = tc.circleFill;
+          ctx.fill();
+        }
+        ctx.strokeStyle = tc.circleStroke;
+        ctx.lineWidth = L.strokeW;
+        ctx.stroke();
+      }
+
+      if (tc.cross) {
+        const half = Math.floor(L.strokeW / 2);
+        ctx.fillStyle = tc.lineColor;
+        ctx.fillRect(L.sx, L.cy - half, L.sw, L.strokeW);
+        ctx.fillRect(L.cx - half, L.sy, L.strokeW, L.sh);
+      }
+
+      if (tc.diagonals) {
+        ctx.strokeStyle = tc.lineColor;
+        ctx.lineWidth = L.strokeW;
+        ctx.beginPath();
+        ctx.moveTo(L.sx, L.sy);
+        ctx.lineTo(L.sx + L.sw, L.sy + L.sh);
+        ctx.moveTo(L.sx + L.sw, L.sy);
+        ctx.lineTo(L.sx, L.sy + L.sh);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    },
+
     renderScreen(ctx, screen, isSelected, isPrimary) {
       const { x, y, widthPx, heightPx, color1, color2 } = screen;
       const { cols, rows } = this.getScreenCellGrid(screen);
@@ -779,27 +928,9 @@
         };
 
         if (mode === "bw") {
-          // Grilla personalizable (valor interno "bw"): fondo + líneas de módulo + contorno, recortado a la pantalla
-          const gs = this.getGridStyle(screen);
-          const half = Math.floor(gs.width / 2);
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(x, y, widthPx, heightPx);
-          ctx.clip();
-          ctx.fillStyle = gs.bg;
-          ctx.fillRect(x, y, widthPx, heightPx);
-          ctx.fillStyle = gs.color;
-          // Rect de ancho w con inicio en (borde - floor(w/2)): equivale a trazo centrado
-          // (+0.5 para grosor impar, sin offset para grosor par), siempre alineado a píxel.
-          for (let c = 0; c <= cols; c++) {
-            const ex = c === cols ? Math.round(x + widthPx) : Math.round(x + c * colStep);
-            ctx.fillRect(ex - half, Math.round(y), gs.width, heightPx);
-          }
-          for (let r = 0; r <= rows; r++) {
-            const ey = r === rows ? Math.round(y + heightPx) : Math.round(y + r * rowStep);
-            ctx.fillRect(Math.round(x), ey - half, widthPx, gs.width);
-          }
-          ctx.restore();
+          this.drawGridBackground(ctx, screen, cols, rows);
+        } else if (mode === "testcard") {
+          this.renderTestCard(ctx, screen, cols, rows);
         } else {
           const dir = state.settings.gradientDirection;
           let grad;
@@ -857,7 +988,8 @@
         : Math.max(14, Math.min(64, Math.floor(Math.min(widthPx, heightPx) / 6)));
 
       const fontWeight = screen.labelFontWeight || "300";
-      const fontColor = screen.labelColor || (this.getScreenDisplayMode(screen) === "bw" && this.isLightColor(this.getGridStyle(screen).bg) ? "#000000" : "#ffffff");
+      const dMode = this.getScreenDisplayMode(screen);
+      const fontColor = screen.labelColor || ((dMode === "bw" || dMode === "testcard") && this.isLightColor(this.getGridStyle(screen).bg) ? "#000000" : "#ffffff");
 
       ctx.save();
       ctx.textAlign = "center";
@@ -1931,6 +2063,7 @@
           gridLineWidth: state.settings.gridLineWidth,
           gridLineColor: state.settings.gridLineColor,
           gridBgColor: state.settings.gridBgColor,
+          testCard: { ...RenderEngine.getTestCardSettings(null) },
           cellMode: state.settings.cellMode,
           cellModPreset: state.settings.cellModPreset,
           cellModWidthMm: state.settings.cellModWidthMm,
@@ -2973,11 +3106,25 @@
       box.classList.toggle("hidden", modeSel.value !== "gradient");
       const gridBox = document.getElementById("opt-grid-options");
       if (gridBox) {
-        gridBox.classList.toggle("hidden", modeSel.value !== "bw");
+        gridBox.classList.toggle("hidden", modeSel.value !== "bw" && modeSel.value !== "testcard");
         const gs = RenderEngine.getGridStyle(null);
         document.getElementById("opt-grid-line-width").value = gs.width;
         document.getElementById("opt-grid-line-color").value = gs.color;
         document.getElementById("opt-grid-bg-color").value = gs.bg;
+      }
+      const tcBox = document.getElementById("opt-testcard-options");
+      if (tcBox) {
+        tcBox.classList.toggle("hidden", modeSel.value !== "testcard");
+        const tc = RenderEngine.getTestCardSettings(null);
+        document.getElementById("opt-tc-color-bar").checked = tc.colorBar;
+        document.getElementById("opt-tc-bw-bar").checked = tc.bwBar;
+        document.getElementById("opt-tc-circle").checked = tc.circle;
+        document.getElementById("opt-tc-cross").checked = tc.cross;
+        document.getElementById("opt-tc-diagonals").checked = tc.diagonals;
+        document.getElementById("opt-tc-circle-stroke").value = tc.circleStroke;
+        document.getElementById("opt-tc-circle-fill-enabled").checked = tc.circleFillEnabled;
+        document.getElementById("opt-tc-circle-fill").value = tc.circleFill;
+        document.getElementById("opt-tc-line-color").value = tc.lineColor;
       }
       const cellModeSel = document.getElementById("opt-cell-mode");
       if (cellModeSel) {
@@ -3040,6 +3187,31 @@
         this.updateActiveScreenForm();
         RenderEngine.render();
         Persistence.saveAuto();
+      });
+      const setGlobalTc = (key, val) => {
+        state.settings.testCard = { ...RenderEngine.getTestCardSettings(null), [key]: val };
+        this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      };
+      [
+        ["opt-tc-color-bar", "colorBar"],
+        ["opt-tc-bw-bar", "bwBar"],
+        ["opt-tc-circle", "circle"],
+        ["opt-tc-cross", "cross"],
+        ["opt-tc-diagonals", "diagonals"],
+        ["opt-tc-circle-fill-enabled", "circleFillEnabled"]
+      ].forEach(([id, key]) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener("change", (e) => setGlobalTc(key, e.target.checked));
+      });
+      [
+        ["opt-tc-circle-stroke", "circleStroke"],
+        ["opt-tc-circle-fill", "circleFill"],
+        ["opt-tc-line-color", "lineColor"]
+      ].forEach(([id, key]) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener("input", (e) => setGlobalTc(key, e.target.value));
       });
       document.getElementById("opt-cell-mode").addEventListener("change", (e) => {
         state.settings.cellMode = e.target.value;
@@ -3270,9 +3442,10 @@
               <option value="checker" ${screen.displayMode === "checker" ? "selected" : ""}>Damero</option>
               <option value="bw" ${screen.displayMode === "bw" ? "selected" : ""}>Grilla</option>
               <option value="gradient" ${screen.displayMode === "gradient" ? "selected" : ""}>Degradado</option>
+              <option value="testcard" ${screen.displayMode === "testcard" ? "selected" : ""}>Test card</option>
             </select>
           </div>
-          ${RenderEngine.getScreenDisplayMode(screen) === "bw" ? (() => {
+          ${(RenderEngine.getScreenDisplayMode(screen) === "bw" || RenderEngine.getScreenDisplayMode(screen) === "testcard") ? (() => {
             const gs = RenderEngine.getGridStyle(screen);
             return `
           <div class="form-grid-3">
@@ -3291,6 +3464,38 @@
           </div>
           <div class="form-group">
             <button type="button" id="btn-screen-grid-global" class="btn btn-secondary btn-sm">Usar global</button>
+          </div>`;
+          })() : ""}
+          ${RenderEngine.getScreenDisplayMode(screen) === "testcard" ? (() => {
+            const tc = RenderEngine.getTestCardSettings(screen);
+            return `
+          <div class="form-group">
+            <label>Elementos de test card</label>
+            <label class="setting-row"><span>Degradado color (sup.)</span><input type="checkbox" id="screen-tc-color-bar" ${tc.colorBar ? "checked" : ""}></label>
+            <label class="setting-row"><span>Degradado B/N (inf.)</span><input type="checkbox" id="screen-tc-bw-bar" ${tc.bwBar ? "checked" : ""}></label>
+            <label class="setting-row"><span>Círculo central</span><input type="checkbox" id="screen-tc-circle" ${tc.circle ? "checked" : ""}></label>
+            <label class="setting-row"><span>Eje en cruz</span><input type="checkbox" id="screen-tc-cross" ${tc.cross ? "checked" : ""}></label>
+            <label class="setting-row"><span>Diagonales (X)</span><input type="checkbox" id="screen-tc-diagonals" ${tc.diagonals ? "checked" : ""}></label>
+          </div>
+          <div class="form-grid-3">
+            <div class="form-group">
+              <label for="screen-tc-circle-stroke">Borde círculo</label>
+              <input type="color" id="screen-tc-circle-stroke" class="color-input-native" value="${tc.circleStroke}">
+            </div>
+            <div class="form-group">
+              <label for="screen-tc-circle-fill">Relleno</label>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" id="screen-tc-circle-fill-enabled" ${tc.circleFillEnabled ? "checked" : ""} title="Activar relleno">
+                <input type="color" id="screen-tc-circle-fill" class="color-input-native" value="${tc.circleFill}">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="screen-tc-line-color">Color líneas</label>
+              <input type="color" id="screen-tc-line-color" class="color-input-native" value="${tc.lineColor}">
+            </div>
+          </div>
+          <div class="form-group">
+            <button type="button" id="btn-screen-tc-global" class="btn btn-secondary btn-sm">Usar configuración global</button>
           </div>`;
           })() : ""}
           ${(state.settings.displayMode === "gradient" || screen.displayMode === "gradient") ? `
@@ -3672,6 +3877,39 @@
           delete screen.gridLineWidth;
           delete screen.gridLineColor;
           delete screen.gridBgColor;
+          RenderEngine.render();
+          Persistence.saveAuto();
+          this.updateActiveScreenForm();
+        });
+      }
+      const scrTcBar = getEl("screen-tc-color-bar");
+      if (scrTcBar) {
+        const setScreenTc = (key, val) => {
+          screen.testCard = { ...RenderEngine.getTestCardSettings(screen), [key]: val };
+          RenderEngine.render();
+          Persistence.saveAuto();
+        };
+        [
+          ["screen-tc-color-bar", "colorBar"],
+          ["screen-tc-bw-bar", "bwBar"],
+          ["screen-tc-circle", "circle"],
+          ["screen-tc-cross", "cross"],
+          ["screen-tc-diagonals", "diagonals"],
+          ["screen-tc-circle-fill-enabled", "circleFillEnabled"]
+        ].forEach(([id, key]) => {
+          const el = getEl(id);
+          if (el) el.addEventListener("change", (e) => setScreenTc(key, e.target.checked));
+        });
+        [
+          ["screen-tc-circle-stroke", "circleStroke"],
+          ["screen-tc-circle-fill", "circleFill"],
+          ["screen-tc-line-color", "lineColor"]
+        ].forEach(([id, key]) => {
+          const el = getEl(id);
+          if (el) el.addEventListener("input", (e) => setScreenTc(key, e.target.value));
+        });
+        getEl("btn-screen-tc-global").addEventListener("click", () => {
+          delete screen.testCard;
           RenderEngine.render();
           Persistence.saveAuto();
           this.updateActiveScreenForm();
@@ -4267,20 +4505,53 @@
             }
           }
           out.push(`    </g>`);
-        } else if (mode === "bw") {
+        } else if (mode === "bw" || mode === "testcard") {
           const gs = RenderEngine.getGridStyle(screen);
           const half = Math.floor(gs.width / 2);
           const clipId = uniqueId(`${gid}_clip`, "clip");
-          defs.push(`    <clipPath id="${clipId}"><rect x="${num(x)}" y="${num(y)}" width="${num(widthPx)}" height="${num(heightPx)}"/></clipPath>`);
-          out.push(`    <g id="${gid}_grilla" clip-path="url(#${clipId})" shape-rendering="crispEdges">`);
-          out.push(`      <rect x="${num(x)}" y="${num(y)}" width="${num(widthPx)}" height="${num(heightPx)}" fill="${esc(gs.bg)}"/>`);
+          defs.push(`    <clipPath id="${clipId}"><rect x="${Math.round(x)}" y="${Math.round(y)}" width="${Math.round(widthPx)}" height="${Math.round(heightPx)}"/></clipPath>`);
+          out.push(`    <g id="${gid}_${mode === "testcard" ? "testcard" : "grilla"}" clip-path="url(#${clipId})">`);
+          out.push(`      <g shape-rendering="crispEdges">`);
+          out.push(`        <rect x="${Math.round(x)}" y="${Math.round(y)}" width="${Math.round(widthPx)}" height="${Math.round(heightPx)}" fill="${esc(gs.bg)}"/>`);
           for (let c = 0; c <= cols; c++) {
             const ex = c === cols ? Math.round(x + widthPx) : Math.round(x + c * colStep);
-            out.push(`      <rect x="${ex - half}" y="${num(y)}" width="${gs.width}" height="${num(heightPx)}" fill="${esc(gs.color)}"/>`);
+            out.push(`        <rect x="${ex - half}" y="${Math.round(y)}" width="${gs.width}" height="${Math.round(heightPx)}" fill="${esc(gs.color)}"/>`);
           }
           for (let r = 0; r <= rows; r++) {
             const ey = r === rows ? Math.round(y + heightPx) : Math.round(y + r * rowStep);
-            out.push(`      <rect x="${num(x)}" y="${ey - half}" width="${num(widthPx)}" height="${gs.width}" fill="${esc(gs.color)}"/>`);
+            out.push(`        <rect x="${Math.round(x)}" y="${ey - half}" width="${Math.round(widthPx)}" height="${gs.width}" fill="${esc(gs.color)}"/>`);
+          }
+          out.push(`      </g>`);
+          if (mode === "testcard") {
+            const tc = RenderEngine.getTestCardSettings(screen);
+            const L = RenderEngine.getTestCardLayout(screen);
+            if (tc.colorBar) {
+              const gId = uniqueId(`${gid}_tc_color`, "tc_color");
+              const stops = ["#ff0000", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff"]
+                .map((c, i) => `<stop offset="${num(i / 5)}" stop-color="${c}"/>`).join("");
+              defs.push(`    <linearGradient id="${gId}" gradientUnits="userSpaceOnUse" x1="${L.barX}" y1="${L.topBarY}" x2="${L.barX + L.barW}" y2="${L.topBarY}">${stops}</linearGradient>`);
+              out.push(`      <rect x="${L.barX}" y="${L.topBarY}" width="${L.barW}" height="${L.barH}" fill="url(#${gId})"/>`);
+            }
+            if (tc.bwBar) {
+              const gId = uniqueId(`${gid}_tc_bw`, "tc_bw");
+              defs.push(`    <linearGradient id="${gId}" gradientUnits="userSpaceOnUse" x1="${L.barX}" y1="${L.botBarY}" x2="${L.barX + L.barW}" y2="${L.botBarY}"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#000000"/></linearGradient>`);
+              out.push(`      <rect x="${L.barX}" y="${L.botBarY}" width="${L.barW}" height="${L.barH}" fill="url(#${gId})"/>`);
+            }
+            if (tc.circle) {
+              const cFill = tc.circleFillEnabled ? esc(tc.circleFill) : "none";
+              out.push(`      <circle cx="${L.cx}" cy="${L.cy}" r="${L.r}" fill="${cFill}" stroke="${esc(tc.circleStroke)}" stroke-width="${L.strokeW}"/>`);
+            }
+            if (tc.cross) {
+              const ch = Math.floor(L.strokeW / 2);
+              out.push(`      <g shape-rendering="crispEdges" fill="${esc(tc.lineColor)}">`);
+              out.push(`        <rect x="${L.sx}" y="${L.cy - ch}" width="${L.sw}" height="${L.strokeW}"/>`);
+              out.push(`        <rect x="${L.cx - ch}" y="${L.sy}" width="${L.strokeW}" height="${L.sh}"/>`);
+              out.push(`      </g>`);
+            }
+            if (tc.diagonals) {
+              out.push(`      <line x1="${L.sx}" y1="${L.sy}" x2="${L.sx + L.sw}" y2="${L.sy + L.sh}" stroke="${esc(tc.lineColor)}" stroke-width="${L.strokeW}"/>`);
+              out.push(`      <line x1="${L.sx + L.sw}" y1="${L.sy}" x2="${L.sx}" y2="${L.sy + L.sh}" stroke="${esc(tc.lineColor)}" stroke-width="${L.strokeW}"/>`);
+            }
           }
           out.push(`    </g>`);
         } else {
@@ -4316,7 +4587,7 @@
             ? screen.labelFontSize
             : Math.max(14, Math.min(64, Math.floor(Math.min(widthPx, heightPx) / 6)));
           const fontWeight = screen.labelFontWeight || "300";
-          const fontColor = screen.labelColor || (mode === "bw" && RenderEngine.isLightColor(RenderEngine.getGridStyle(screen).bg) ? "#000000" : "#ffffff");
+          const fontColor = screen.labelColor || ((mode === "bw" || mode === "testcard") && RenderEngine.isLightColor(RenderEngine.getGridStyle(screen).bg) ? "#000000" : "#ffffff");
           const fam = esc(FONT_MAIN.replace(/"/g, "'"));
           const showSub = state.settings.showSublabels && heightPx >= 70 && widthPx >= 90;
           const labelY = showSub ? centerY - fontSize * 0.45 : centerY;

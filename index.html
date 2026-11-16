@@ -314,6 +314,7 @@
                 <option value="bw">Grilla B/N</option>
                 <option value="bw">Grilla</option>
                 <option value="gradient">Degradado</option>
+                <option value="testcard">Test card</option>
               </select>
             </div>
             <div id="opt-grid-options" class="hidden">
@@ -346,6 +347,46 @@
                 <span>Mostrar líneas de módulo</span>
                 <input type="checkbox" id="opt-show-module-lines" checked>
               </label>
+            </div>
+            <div id="opt-testcard-options" class="hidden">
+              <p class="small-text" style="margin:6px 0 4px;">Elementos de test card</p>
+              <label class="setting-row">
+                <span>Degradado color (sup.)</span>
+                <input type="checkbox" id="opt-tc-color-bar" checked>
+              </label>
+              <label class="setting-row">
+                <span>Degradado B/N (inf.)</span>
+                <input type="checkbox" id="opt-tc-bw-bar" checked>
+              </label>
+              <label class="setting-row">
+                <span>Círculo central</span>
+                <input type="checkbox" id="opt-tc-circle" checked>
+              </label>
+              <label class="setting-row">
+                <span>Eje en cruz</span>
+                <input type="checkbox" id="opt-tc-cross" checked>
+              </label>
+              <label class="setting-row">
+                <span>Diagonales (X)</span>
+                <input type="checkbox" id="opt-tc-diagonals" checked>
+              </label>
+              <div class="form-grid-3" style="margin-top:6px;">
+                <div class="form-group">
+                  <label for="opt-tc-circle-stroke">Borde círculo</label>
+                  <input type="color" id="opt-tc-circle-stroke" class="color-input-native" value="#ffffff">
+                </div>
+                <div class="form-group">
+                  <label for="opt-tc-circle-fill">Relleno</label>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <input type="checkbox" id="opt-tc-circle-fill-enabled" title="Activar relleno">
+                    <input type="color" id="opt-tc-circle-fill" class="color-input-native" value="#000000">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="opt-tc-line-color">Color líneas</label>
+                  <input type="color" id="opt-tc-line-color" class="color-input-native" value="#ffffff">
+                </div>
+              </div>
             </div>
             <div class="form-group">
               <label for="opt-cell-mode">Modo de celda</label>
