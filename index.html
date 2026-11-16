@@ -157,6 +157,9 @@
           <button class="tab-btn" data-tab="tab-summary">
             <span>Tabla Resumen</span>
           </button>
+          <button class="tab-btn" data-tab="tab-animation">
+            <span>Animación</span>
+          </button>
           <button class="tab-btn" data-tab="tab-settings">
             <span>Ajustes</span>
           </button>
@@ -485,6 +488,104 @@
             </div>
             <div id="autosave-status" class="autosave-status">
               <span>Guardado automáticamente</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 5: ANIMACIÓN -->
+        <section id="tab-animation" class="sidebar-tab-content">
+          <div class="sidebar-section-header">
+            <div>
+              <h2 class="section-title">Animación en Loop</h2>
+              <p class="section-desc">Vista previa determinista a 30 fps por pantalla.</p>
+            </div>
+          </div>
+
+          <div class="editor-card">
+            <div class="editor-card-title">
+              <span>Reproducción</span>
+              <span id="anim-time-display" class="badge">0.00 / 6.00 s</span>
+            </div>
+            <div class="form-group">
+              <input type="range" id="anim-scrubber" min="0" max="6" step="0.033333" value="0" style="width:100%;">
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button type="button" id="anim-btn-play" class="btn btn-primary btn-sm" style="flex:1;">Play</button>
+              <button type="button" id="anim-btn-pause" class="btn btn-secondary btn-sm" style="flex:1;">Pausa</button>
+              <button type="button" id="anim-btn-stop" class="btn btn-secondary btn-sm" style="flex:1;">Stop</button>
+            </div>
+          </div>
+
+          <div class="editor-card">
+            <div class="editor-card-title"><span>Efecto y Loop</span></div>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="anim-effect">Efecto</label>
+                <select id="anim-effect" class="form-select">
+                  <option value="sequence">Secuencia</option>
+                  <option value="sequence_all">Secuencia y luego todas</option>
+                  <option value="strobe">Strobe</option>
+                  <option value="sequence_strobe">Secuencia + strobe</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="anim-loop-duration"><span>Duración loop</span><span class="label-unit">s</span></label>
+                <input type="number" id="anim-loop-duration" class="form-input" min="0.5" max="120" step="0.5" value="6">
+              </div>
+            </div>
+
+            <div id="anim-seq-params">
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="anim-seq-delay"><span>Retraso</span><span class="label-unit">s</span></label>
+                  <input type="number" id="anim-seq-delay" class="form-input" min="0" max="30" step="0.05" value="0.4">
+                </div>
+                <div class="form-group">
+                  <label for="anim-seq-fade"><span>Fundido</span><span class="label-unit">s (0=corte)</span></label>
+                  <input type="number" id="anim-seq-fade" class="form-input" min="0" max="30" step="0.05" value="0.25">
+                </div>
+              </div>
+              <div class="form-group" id="anim-seq-off-group">
+                <label for="anim-seq-off-mode">Apagado al final</label>
+                <select id="anim-seq-off-mode" class="form-select">
+                  <option value="all">Todas juntas</option>
+                  <option value="one_by_one">De a una</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="anim-all-params" class="hidden">
+              <div class="form-group">
+                <label for="anim-all-duration"><span>Todas juntas</span><span class="label-unit">s</span></label>
+                <input type="number" id="anim-all-duration" class="form-input" min="0" max="60" step="0.1" value="1.5">
+              </div>
+            </div>
+
+            <div id="anim-strobe-params" class="hidden">
+              <div class="form-group" id="anim-strobe-target-group">
+                <label for="anim-strobe-target">Pantallas en strobe</label>
+                <select id="anim-strobe-target" class="form-select">
+                  <option value="all">Todas (incluidas)</option>
+                  <option value="selected">Solo seleccionadas</option>
+                </select>
+              </div>
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label for="anim-strobe-freq"><span>Frecuencia</span><span class="label-unit">Hz</span></label>
+                  <input type="number" id="anim-strobe-freq" class="form-input" min="0.5" max="15" step="0.1" value="4">
+                </div>
+                <div class="form-group">
+                  <label for="anim-strobe-intensity"><span>Intensidad</span><span class="label-unit">%</span></label>
+                  <input type="number" id="anim-strobe-intensity" class="form-input" min="0" max="100" step="1" value="100">
+                </div>
+                <div class="form-group">
+                  <label for="anim-strobe-duty"><span>Duty</span><span class="label-unit">%</span></label>
+                  <input type="number" id="anim-strobe-duty" class="form-input" min="10" max="90" step="1" value="50">
+                </div>
+              </div>
+              <div class="form-group">
+                <small id="anim-strobe-real-freq" class="small-text">Frecuencia real: 4.00 Hz (24 ciclos)</small>
+              </div>
             </div>
           </div>
         </section>

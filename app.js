@@ -211,6 +211,18 @@
       cellModWidthMm: 500,
       cellModHeightMm: 500,
       cellTargetPx: 64,
+      animation: {
+        effect: "sequence",
+        loopDuration: 6,
+        seqDelay: 0.4,
+        seqFade: 0.25,
+        seqOffMode: "all",
+        allOnDuration: 1.5,
+        strobeTarget: "all",
+        strobeFreq: 4,
+        strobeIntensity: 100,
+        strobeDuty: 50
+      },
       canvasBg: "#000000",
       distributeSpacing: 0
     },
@@ -519,6 +531,234 @@
 
 
   /* ===========================================================================
+   * 4B. ANIMATION ENGINE (Loop determinista a 30 fps por pantalla)
+   * =========================================================================== */
+  const AnimationEngine = {
+    FPS: 30,
+    status: "stopped", // "stopped" | "playing" | "paused" (no se guarda en proyecto)
+    currentTime: 0,
+    lastTimestamp: 0,
+    lastRenderedFrame: -1,
+    rafId: null,
+
+    getSettings() {
+      const def = {
+        effect: "sequence",
+        loopDuration: 6,
+        seqDelay: 0.4,
+        seqFade: 0.25,
+        seqOffMode: "all",
+        allOnDuration: 1.5,
+        strobeTarget: "all",
+        strobeFreq: 4,
+        strobeIntensity: 100,
+        strobeDuty: 50
+      };
+      const a = (state.settings && state.settings.animation) || {};
+      const clamp = (v, d, min, max) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d;
+      };
+      const effect = ["sequence", "sequence_all", "strobe", "sequence_strobe"].includes(a.effect)
+        ? a.effect : def.effect;
+      return {
+        effect,
+        loopDuration: clamp(a.loopDuration, def.loopDuration, 0.5, 120),
+        seqDelay: clamp(a.seqDelay, def.seqDelay, 0, 30),
+        seqFade: clamp(a.seqFade, def.seqFade, 0, 30),
+        seqOffMode: a.seqOffMode === "one_by_one" ? "one_by_one" : "all",
+        allOnDuration: clamp(a.allOnDuration, def.allOnDuration, 0, 60),
+        strobeTarget: a.strobeTarget === "selected" ? "selected" : "all",
+        strobeFreq: clamp(a.strobeFreq, def.strobeFreq, 0.5, 15),
+        strobeIntensity: clamp(a.strobeIntensity, def.strobeIntensity, 0, 100),
+        strobeDuty: clamp(a.strobeDuty, def.strobeDuty, 10, 90)
+      };
+    },
+
+    getOrderedActiveScreens() {
+      return state.screens
+        .map((s, idx) => ({ s, idx, order: Math.max(1, Math.round(Number(s.animOrder) || (idx + 1))) }))
+        .filter(item => item.s.visible !== false && item.s.animIncluded !== false)
+        .sort((a, b) => a.order - b.order || a.idx - b.idx);
+    },
+
+    getStrobeMeta(a, activeCount) {
+      const D = a.loopDuration;
+      let dur = D;
+      if (a.effect === "sequence_strobe") {
+        const n = Math.max(1, activeCount);
+        const rawSeqEnd = (n - 1) * a.seqDelay + a.seqFade;
+        const seqEnd = Math.min(rawSeqEnd, D * 0.6);
+        dur = Math.max(0.1, D - seqEnd);
+      }
+      const minC = Math.max(1, Math.ceil(0.5 * dur));
+      const maxC = Math.max(minC, Math.floor(15 * dur));
+      const cycles = Math.max(minC, Math.min(maxC, Math.round(a.strobeFreq * dur)));
+      return { dur, cycles, realFreq: cycles / dur };
+    },
+
+    /** Función pura y determinista: intensidad 0..1 para screenIndex en el tiempo t (s), cuantizada a 30 fps. */
+    getScreenIntensity(screenIndex, t) {
+      const screen = state.screens[screenIndex];
+      if (!screen || screen.visible === false) return 0;
+      if (screen.animIncluded === false) return 1;
+
+      const a = this.getSettings();
+      const D = a.loopDuration;
+      const totalFrames = Math.max(2, Math.round(D * this.FPS));
+      const frame = ((Math.floor((Number(t) || 0) * this.FPS + 1e-9) % totalFrames) + totalFrames) % totalFrames;
+      const qt = (frame / totalFrames) * D;
+
+      const ordered = this.getOrderedActiveScreens();
+      const n = ordered.length;
+      const pos = ordered.findIndex(item => item.idx === screenIndex);
+      if (pos < 0 || n === 0) return 1;
+
+      const env = (onS, onE, offS, offE, hasFade) => {
+        if (qt < onS) return 0;
+        if (hasFade && qt < onE) return (qt - onS) / Math.max(1e-6, onE - onS);
+        if (qt < offS) return 1;
+        if (hasFade && qt < offE) return Math.max(0, 1 - (qt - offS) / Math.max(1e-6, offE - offS));
+        return 0;
+      };
+
+      const delay = a.seqDelay;
+      const fade = a.seqFade;
+      const hasFade = fade > 0;
+      const stepEndGap = Math.min(0.25, D * 0.1);
+
+      if (a.effect === "sequence") {
+        let onS = pos * delay;
+        let onE = onS + fade;
+        const onPhase = (n - 1) * delay + fade;
+        if (a.seqOffMode === "one_by_one") {
+          const offTail = hasFade ? fade : stepEndGap;
+          const offPhase = (n - 1) * delay + offTail;
+          const nat = onPhase + Math.max(0.2, delay) + offPhase;
+          const sc = nat > D ? D / nat : 1;
+          onS *= sc; onE *= sc;
+          const offBase = D - offPhase * sc;
+          const offS = offBase + pos * delay * sc;
+          const offE = hasFade ? offS + fade * sc : offS;
+          return env(onS, onE, offS, offE, hasFade);
+        } else {
+          const offDur = hasFade ? fade : stepEndGap;
+          const nat = onPhase + Math.max(0.2, delay * 0.5) + offDur;
+          const sc = nat > D ? D / nat : 1;
+          onS *= sc; onE *= sc;
+          const offS = D - offDur * sc;
+          const offE = hasFade ? D : offS;
+          return env(onS, onE, offS, offE, hasFade);
+        }
+      }
+
+      if (a.effect === "sequence_all") {
+        let onS = pos * delay;
+        let onE = onS + fade;
+        const onPhase = (n - 1) * delay + fade;
+        const offDur = hasFade ? fade : stepEndGap;
+        let offS = onPhase + a.allOnDuration;
+        let offE = offS + offDur;
+        if (offE > D) {
+          const sc = D / offE;
+          onS *= sc; onE *= sc; offS *= sc; offE = hasFade ? D : offS;
+        } else if (!hasFade) {
+          offE = offS;
+        }
+        return env(onS, onE, offS, offE, hasFade);
+      }
+
+      if (a.effect === "strobe") {
+        if (a.strobeTarget === "selected" && !state.selectedScreenIds.includes(screen.id)) return 0;
+        const meta = this.getStrobeMeta(a, n);
+        const phase = (qt * meta.realFreq) % 1;
+        const duty = a.strobeDuty / 100;
+        return phase < duty ? (a.strobeIntensity / 100) : 0;
+      }
+
+      // sequence_strobe
+      const rawSeqEnd = (n - 1) * delay + fade;
+      const sc = rawSeqEnd > D * 0.6 && rawSeqEnd > 0 ? (D * 0.6) / rawSeqEnd : 1;
+      const strobeStart = rawSeqEnd * sc;
+      if (qt < strobeStart) {
+        const onS = pos * delay * sc;
+        const onE = onS + fade * sc;
+        if (qt < onS) return 0;
+        if (hasFade && qt < onE) return (qt - onS) / Math.max(1e-6, onE - onS);
+        return 1;
+      }
+      const meta = this.getStrobeMeta(a, n);
+      const phase = ((qt - strobeStart) * meta.realFreq) % 1;
+      return phase < (a.strobeDuty / 100) ? (a.strobeIntensity / 100) : 0;
+    },
+
+    isActive() {
+      return this.status !== "stopped";
+    },
+
+    play() {
+      if (this.status === "playing") return;
+      this.status = "playing";
+      this.lastTimestamp = performance.now();
+      this.lastRenderedFrame = -1;
+      UIController.syncAnimationPlaybackUI();
+      RenderEngine.render();
+      this.rafId = requestAnimationFrame((ts) => this.tick(ts));
+    },
+
+    pause() {
+      if (this.rafId) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      if (this.status === "playing") {
+        this.status = "paused";
+        UIController.syncAnimationPlaybackUI();
+      }
+    },
+
+    stop() {
+      if (this.rafId) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      this.status = "stopped";
+      this.currentTime = 0;
+      this.lastRenderedFrame = -1;
+      UIController.syncAnimationPlaybackUI();
+      RenderEngine.render();
+    },
+
+    seek(t) {
+      const D = this.getSettings().loopDuration;
+      const num = Math.max(0, Math.min(D, Number(t) || 0));
+      this.currentTime = num >= D ? 0 : num;
+      if (this.status === "stopped") this.status = "paused";
+      this.lastRenderedFrame = -1;
+      UIController.syncAnimationPlaybackUI();
+      RenderEngine.render();
+    },
+
+    tick(now) {
+      if (this.status !== "playing") return;
+      const dt = Math.min(0.25, Math.max(0, (now - this.lastTimestamp) / 1000));
+      this.lastTimestamp = now;
+      const D = this.getSettings().loopDuration;
+      this.currentTime = (this.currentTime + dt) % D;
+      const frame = Math.floor(this.currentTime * this.FPS + 1e-9);
+      if (frame !== this.lastRenderedFrame) {
+        this.lastRenderedFrame = frame;
+        UIController.syncAnimationPlaybackUI();
+        RenderEngine.render();
+      }
+      this.rafId = requestAnimationFrame((ts) => this.tick(ts));
+    }
+  };
+
+  const getScreenIntensity = (screenIndex, t) => AnimationEngine.getScreenIntensity(screenIndex, t);
+
+
+  /* ===========================================================================
    * 5. RENDER ENGINE (Dibujo de Pantallas, Capas Gráficas y Manijas)
    * =========================================================================== */
   const RenderEngine = {
@@ -595,11 +835,12 @@
       ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
 
       // 2. Pantallas LED
-      state.screens.forEach(screen => {
+      state.screens.forEach((screen, idx) => {
         if (screen.visible === false) return;
         const isSelected = state.selectedScreenIds.includes(screen.id);
         const isPrimary = screen.id === state.selectedScreenId;
-        this.renderScreen(ctx, screen, isSelected, isPrimary);
+        const intensity = AnimationEngine.isActive() ? getScreenIntensity(idx, AnimationEngine.currentTime) : 1;
+        this.renderScreen(ctx, screen, isSelected, isPrimary, intensity);
       });
 
       // 3. Capas Gráficas (Texto, Figuras, Líneas, Degradados)
@@ -946,7 +1187,7 @@
       ctx.restore();
     },
 
-    renderScreen(ctx, screen, isSelected, isPrimary) {
+    renderScreen(ctx, screen, isSelected, isPrimary, intensity = 1) {
       const { x, y, widthPx, heightPx, color1, color2 } = screen;
       const { cols, rows } = this.getScreenCellGrid(screen);
       const mode = this.getScreenDisplayMode(screen);
@@ -1018,6 +1259,16 @@
         }
       }
 
+      if (state.settings.showLabels) {
+        this.renderScreenLabels(ctx, screen);
+      }
+
+      if (intensity < 1) {
+        const dim = Math.max(0, Math.min(1, 1 - intensity));
+        ctx.fillStyle = `rgba(0, 0, 0, ${dim})`;
+        ctx.fillRect(Math.round(x), Math.round(y), Math.round(widthPx), Math.round(heightPx));
+      }
+
       if (isSelected) {
         ctx.strokeStyle = isPrimary ? "#ffffff" : "#cccccc";
         ctx.lineWidth = isPrimary ? 1.5 : 1;
@@ -1031,10 +1282,6 @@
         ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
         ctx.lineWidth = 1;
         ctx.strokeRect(x + 0.5, y + 0.5, widthPx - 1, heightPx - 1);
-      }
-
-      if (state.settings.showLabels) {
-        this.renderScreenLabels(ctx, screen);
       }
 
       ctx.restore();
@@ -2130,7 +2377,8 @@
           cellModPreset: state.settings.cellModPreset,
           cellModWidthMm: state.settings.cellModWidthMm,
           cellModHeightMm: state.settings.cellModHeightMm,
-          cellTargetPx: state.settings.cellTargetPx
+          cellTargetPx: state.settings.cellTargetPx,
+          animation: { ...AnimationEngine.getSettings() }
         }
       });
     },
@@ -2210,6 +2458,7 @@
       const bgSel = document.getElementById("canvas-bg-select");
       if (bgSel) bgSel.value = state.settings.canvasBg;
       UIController.updateDisplayModeControls();
+      UIController.updateAnimationControls();
       const modeSel = document.getElementById("canvas-mode-select");
       if (modeSel) modeSel.value = state.canvas.mode;
       const manualDims = document.getElementById("manual-canvas-dimensions");
@@ -2421,6 +2670,7 @@
       this.bindScreenListControls();
       this.bindLayersControls();
       this.bindSettingsControls();
+      this.bindAnimationControls();
       this.renderLocationsList();
       this.updateScreensSelector();
       this.updateActiveScreenForm();
@@ -3389,6 +3639,7 @@
           state.selectedScreenIds = [state.screens[0].id];
           state.layers = [];
           state.selectedLayerId = null;
+          AnimationEngine.stop();
 
           this.updateScreensSelector();
           this.updateActiveScreenForm();
@@ -3404,11 +3655,13 @@
 
       document.getElementById("btn-clear-project").addEventListener("click", () => {
         if (confirm("¿Borrar todas las pantallas y capas del lienzo?")) {
+          AnimationEngine.stop();
           state.screens = [];
           state.selectedScreenId = null;
           state.selectedScreenIds = [];
           state.layers = [];
           state.selectedLayerId = null;
+          AnimationEngine.stop();
 
           this.updateScreensSelector();
           this.updateActiveScreenForm();
@@ -3419,6 +3672,104 @@
           RenderEngine.render();
           Persistence.saveAuto();
         }
+      });
+    },
+
+    /** Sincroniza la barra de reproducción y tiempo de la animación. */
+    syncAnimationPlaybackUI() {
+      const dur = AnimationEngine.getSettings().loopDuration;
+      const t = Math.min(dur, AnimationEngine.currentTime);
+      const scrubber = document.getElementById("anim-scrubber");
+      const disp = document.getElementById("anim-time-display");
+      const btnPlay = document.getElementById("anim-btn-play");
+      const btnPause = document.getElementById("anim-btn-pause");
+      if (scrubber) {
+        scrubber.max = dur;
+        scrubber.step = (1 / AnimationEngine.FPS).toFixed(6);
+        if (document.activeElement !== scrubber) scrubber.value = t;
+      }
+      if (disp) {
+        const tag = AnimationEngine.status === "stopped" ? " (Stop)" : "";
+        disp.textContent = `${t.toFixed(2)} / ${dur.toFixed(2)} s${tag}`;
+      }
+      if (btnPlay) btnPlay.disabled = AnimationEngine.status === "playing";
+      if (btnPause) btnPause.disabled = AnimationEngine.status !== "playing";
+    },
+
+    /** Sincroniza los controles de animación con state.settings.animation. */
+    updateAnimationControls() {
+      const effEl = document.getElementById("anim-effect");
+      if (!effEl) return;
+      const a = AnimationEngine.getSettings();
+      effEl.value = a.effect;
+      document.getElementById("anim-loop-duration").value = a.loopDuration;
+      document.getElementById("anim-seq-delay").value = a.seqDelay;
+      document.getElementById("anim-seq-fade").value = a.seqFade;
+      document.getElementById("anim-seq-off-mode").value = a.seqOffMode;
+      document.getElementById("anim-all-duration").value = a.allOnDuration;
+      document.getElementById("anim-strobe-target").value = a.strobeTarget;
+      document.getElementById("anim-strobe-freq").value = a.strobeFreq;
+      document.getElementById("anim-strobe-intensity").value = a.strobeIntensity;
+      document.getElementById("anim-strobe-duty").value = a.strobeDuty;
+
+      document.getElementById("anim-seq-params").classList.toggle("hidden", a.effect === "strobe");
+      document.getElementById("anim-seq-off-group").classList.toggle("hidden", a.effect !== "sequence");
+      document.getElementById("anim-all-params").classList.toggle("hidden", a.effect !== "sequence_all");
+      document.getElementById("anim-strobe-params").classList.toggle("hidden", a.effect !== "strobe" && a.effect !== "sequence_strobe");
+      document.getElementById("anim-strobe-target-group").classList.toggle("hidden", a.effect !== "strobe");
+
+      const realEl = document.getElementById("anim-strobe-real-freq");
+      if (realEl) {
+        const activeCount = AnimationEngine.getOrderedActiveScreens().length;
+        const meta = AnimationEngine.getStrobeMeta(a, activeCount);
+        realEl.textContent = `Frecuencia real: ${meta.realFreq.toFixed(2)} Hz (${meta.cycles} ciclos)`;
+      }
+      this.syncAnimationPlaybackUI();
+    },
+
+    bindAnimationControls() {
+      const btnPlay = document.getElementById("anim-btn-play");
+      if (!btnPlay) return;
+      this.updateAnimationControls();
+
+      btnPlay.addEventListener("click", () => AnimationEngine.play());
+      document.getElementById("anim-btn-pause").addEventListener("click", () => AnimationEngine.pause());
+      document.getElementById("anim-btn-stop").addEventListener("click", () => AnimationEngine.stop());
+      document.getElementById("anim-scrubber").addEventListener("input", (e) => {
+        AnimationEngine.seek(parseFloat(e.target.value));
+      });
+
+      const setAnim = (key, val, refreshVis) => {
+        state.settings.animation = { ...AnimationEngine.getSettings(), [key]: val };
+        if (refreshVis) this.updateAnimationControls();
+        else {
+          const a = AnimationEngine.getSettings();
+          const meta = AnimationEngine.getStrobeMeta(a, AnimationEngine.getOrderedActiveScreens().length);
+          const realEl = document.getElementById("anim-strobe-real-freq");
+          if (realEl) realEl.textContent = `Frecuencia real: ${meta.realFreq.toFixed(2)} Hz (${meta.cycles} ciclos)`;
+          this.syncAnimationPlaybackUI();
+        }
+        if (AnimationEngine.isActive()) RenderEngine.render();
+        Persistence.saveAuto();
+      };
+
+      document.getElementById("anim-effect").addEventListener("change", (e) => setAnim("effect", e.target.value, true));
+      document.getElementById("anim-seq-off-mode").addEventListener("change", (e) => setAnim("seqOffMode", e.target.value, false));
+      document.getElementById("anim-strobe-target").addEventListener("change", (e) => setAnim("strobeTarget", e.target.value, false));
+      [
+        ["anim-loop-duration", "loopDuration", 0.5, 120],
+        ["anim-seq-delay", "seqDelay", 0, 30],
+        ["anim-seq-fade", "seqFade", 0, 30],
+        ["anim-all-duration", "allOnDuration", 0, 60],
+        ["anim-strobe-freq", "strobeFreq", 0.5, 15],
+        ["anim-strobe-intensity", "strobeIntensity", 0, 100],
+        ["anim-strobe-duty", "strobeDuty", 10, 90]
+      ].forEach(([id, key, min, max]) => {
+        document.getElementById(id).addEventListener("input", (e) => {
+          const v = parseFloat(e.target.value);
+          if (isNaN(v)) return;
+          setAnim(key, Math.max(min, Math.min(max, v)), false);
+        });
       });
     },
 
@@ -3521,6 +3872,16 @@
                 ${locationOptions}
                 <option value="__custom__">+ Nueva ubicación...</option>
               </select>
+            </div>
+          </div>
+          <div class="form-grid-2" style="margin-top:6px;">
+            <label class="setting-row" style="margin:0;">
+              <span>Incluir en animación</span>
+              <input type="checkbox" id="screen-anim-included" ${screen.animIncluded !== false ? "checked" : ""}>
+            </label>
+            <div class="form-group" style="margin:0;">
+              <label for="screen-anim-order"><span>Orden</span><span class="label-unit">1..${Math.max(1, state.screens.length)}</span></label>
+              <input type="number" id="screen-anim-order" class="form-input" min="1" max="${Math.max(1, state.screens.length)}" step="1" value="${screen.animOrder || (state.screens.indexOf(screen) + 1)}">
             </div>
           </div>
         </div>
@@ -3871,6 +4232,21 @@
         this.updateScreensSelector();
         this.updateSummaryTable();
         RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      getEl("screen-anim-included").addEventListener("change", (e) => {
+        screen.animIncluded = e.target.checked;
+        this.updateAnimationControls();
+        if (AnimationEngine.isActive()) RenderEngine.render();
+        Persistence.saveAuto();
+      });
+
+      getEl("screen-anim-order").addEventListener("input", (e) => {
+        const v = parseInt(e.target.value, 10);
+        if (isNaN(v)) return;
+        screen.animOrder = Math.max(1, Math.min(Math.max(1, state.screens.length), v));
+        if (AnimationEngine.isActive()) RenderEngine.render();
         Persistence.saveAuto();
       });
 
@@ -4984,6 +5360,8 @@
             UIController.updateActiveLayerForm();
             UIController.updateFontTagsList();
             UIController.updateDisplayModeControls();
+            AnimationEngine.stop();
+            UIController.updateAnimationControls();
             UIController.updateSummaryTable();
             UIController.updateSelectionHint();
             RenderEngine.render();
