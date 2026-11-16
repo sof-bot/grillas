@@ -370,6 +370,43 @@
                 <span>Diagonales (X)</span>
                 <input type="checkbox" id="opt-tc-diagonals" checked>
               </label>
+              <label class="setting-row">
+                <span>Círculo con degradado</span>
+                <input type="checkbox" id="opt-tc-grad-circle" checked>
+              </label>
+              <div id="opt-tc-grad-circle-options">
+                <div class="form-grid-3" style="margin-top:6px;">
+                  <div class="form-group">
+                    <label for="opt-tc-gc-size"><span>Diámetro</span><span class="label-unit">%</span></label>
+                    <input type="number" id="opt-tc-gc-size" class="form-input" min="5" max="100" step="1" value="40">
+                  </div>
+                  <div class="form-group">
+                    <label for="opt-tc-gc-x"><span>Pos X</span><span class="label-unit">%</span></label>
+                    <input type="number" id="opt-tc-gc-x" class="form-input" min="0" max="100" step="1" value="50">
+                  </div>
+                  <div class="form-group">
+                    <label for="opt-tc-gc-y"><span>Pos Y</span><span class="label-unit">%</span></label>
+                    <input type="number" id="opt-tc-gc-y" class="form-input" min="0" max="100" step="1" value="50">
+                  </div>
+                </div>
+                <label class="setting-row">
+                  <span>Invertir degradado</span>
+                  <input type="checkbox" id="opt-tc-gc-invert">
+                </label>
+                <div class="form-grid-2" style="margin-top:4px;">
+                  <div class="form-group">
+                    <label for="opt-tc-gc-stroke-color">Borde</label>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <input type="checkbox" id="opt-tc-gc-stroke-enabled" title="Activar borde">
+                      <input type="color" id="opt-tc-gc-stroke-color" class="color-input-native" value="#ffffff">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="opt-tc-gc-stroke-width"><span>Grosor borde</span><span class="label-unit">px</span></label>
+                    <input type="number" id="opt-tc-gc-stroke-width" class="form-input" min="1" max="20" step="1" value="2">
+                  </div>
+                </div>
+              </div>
               <div class="form-grid-3" style="margin-top:6px;">
                 <div class="form-group">
                   <label for="opt-tc-circle-stroke">Borde círculo</label>

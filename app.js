@@ -196,7 +196,15 @@
         circleStroke: "#ffffff",
         circleFillEnabled: false,
         circleFill: "#000000",
-        lineColor: "#ffffff"
+        lineColor: "#ffffff",
+        gradCircle: true,
+        gradCircleSizePct: 40,
+        gradCirclePosX: 50,
+        gradCirclePosY: 50,
+        gradCircleInvert: false,
+        gradCircleStrokeEnabled: false,
+        gradCircleStrokeColor: "#ffffff",
+        gradCircleStrokeWidth: 2
       },
       cellMode: "manual",
       cellModPreset: "500x500",
@@ -651,12 +659,24 @@
         circleStroke: "#ffffff",
         circleFillEnabled: false,
         circleFill: "#000000",
-        lineColor: "#ffffff"
+        lineColor: "#ffffff",
+        gradCircle: false,
+        gradCircleSizePct: 40,
+        gradCirclePosX: 50,
+        gradCirclePosY: 50,
+        gradCircleInvert: false,
+        gradCircleStrokeEnabled: false,
+        gradCircleStrokeColor: "#ffffff",
+        gradCircleStrokeWidth: 2
       };
       const g = (state.settings && state.settings.testCard) || {};
       const own = (screen && screen.testCard) || {};
       const src = { ...def, ...g, ...own };
       const hex = (v, d) => (typeof v === "string" && /^#[0-9A-Fa-f]{6}$/.test(v)) ? v : d;
+      const clamp = (v, d, min, max) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d;
+      };
       return {
         colorBar: src.colorBar !== false,
         bwBar: src.bwBar !== false,
@@ -666,8 +686,34 @@
         circleStroke: hex(src.circleStroke, def.circleStroke),
         circleFillEnabled: !!src.circleFillEnabled,
         circleFill: hex(src.circleFill, def.circleFill),
-        lineColor: hex(src.lineColor, def.lineColor)
+        lineColor: hex(src.lineColor, def.lineColor),
+        gradCircle: !!src.gradCircle,
+        gradCircleSizePct: clamp(src.gradCircleSizePct, def.gradCircleSizePct, 5, 100),
+        gradCirclePosX: clamp(src.gradCirclePosX, def.gradCirclePosX, 0, 100),
+        gradCirclePosY: clamp(src.gradCirclePosY, def.gradCirclePosY, 0, 100),
+        gradCircleInvert: !!src.gradCircleInvert,
+        gradCircleStrokeEnabled: !!src.gradCircleStrokeEnabled,
+        gradCircleStrokeColor: hex(src.gradCircleStrokeColor, def.gradCircleStrokeColor),
+        gradCircleStrokeWidth: Math.round(clamp(src.gradCircleStrokeWidth, def.gradCircleStrokeWidth, 1, 20))
       };
+    },
+
+    /** Geometría del círculo con degradado radial: centro alineado a píxel, sin recortarse. */
+    getGradCircleGeometry(tc, L) {
+      const pad = tc.gradCircleStrokeEnabled ? tc.gradCircleStrokeWidth / 2 : 0;
+      const maxD = Math.max(2, Math.min(L.sw, L.sh) - 2 * pad);
+      const d = Math.max(2, Math.min(L.sh * (tc.gradCircleSizePct / 100), maxD));
+      let r = d / 2;
+      const minCx = Math.ceil(L.sx + pad + r);
+      const maxCx = Math.floor(L.sx + L.sw - pad - r);
+      const minCy = Math.ceil(L.sy + pad + r);
+      const maxCy = Math.floor(L.sy + L.sh - pad - r);
+      const rawCx = Math.round(L.sx + L.sw * (tc.gradCirclePosX / 100));
+      const rawCy = Math.round(L.sy + L.sh * (tc.gradCirclePosY / 100));
+      const cx = minCx <= maxCx ? Math.max(minCx, Math.min(maxCx, rawCx)) : Math.round(L.sx + L.sw / 2);
+      const cy = minCy <= maxCy ? Math.max(minCy, Math.min(maxCy, rawCy)) : Math.round(L.sy + L.sh / 2);
+      r = Math.max(1, Math.min(r, cx - L.sx - pad, L.sx + L.sw - pad - cx, cy - L.sy - pad, L.sy + L.sh - pad - cy));
+      return { cx, cy, r };
     },
 
     /** Geometría entera y escalada de los elementos del Test Card dentro de la pantalla. */
@@ -861,6 +907,22 @@
         ctx.strokeStyle = tc.circleStroke;
         ctx.lineWidth = L.strokeW;
         ctx.stroke();
+      }
+
+      if (tc.gradCircle) {
+        const gc = this.getGradCircleGeometry(tc, L);
+        const g = ctx.createRadialGradient(gc.cx, gc.cy, 0, gc.cx, gc.cy, gc.r);
+        g.addColorStop(0, tc.gradCircleInvert ? "#000000" : "#ffffff");
+        g.addColorStop(1, tc.gradCircleInvert ? "#ffffff" : "#000000");
+        ctx.beginPath();
+        ctx.arc(gc.cx, gc.cy, gc.r, 0, Math.PI * 2);
+        ctx.fillStyle = g;
+        ctx.fill();
+        if (tc.gradCircleStrokeEnabled) {
+          ctx.strokeStyle = tc.gradCircleStrokeColor;
+          ctx.lineWidth = tc.gradCircleStrokeWidth;
+          ctx.stroke();
+        }
       }
 
       if (tc.cross) {
@@ -3121,6 +3183,16 @@
         document.getElementById("opt-tc-circle").checked = tc.circle;
         document.getElementById("opt-tc-cross").checked = tc.cross;
         document.getElementById("opt-tc-diagonals").checked = tc.diagonals;
+        document.getElementById("opt-tc-grad-circle").checked = tc.gradCircle;
+        const gcBox = document.getElementById("opt-tc-grad-circle-options");
+        if (gcBox) gcBox.classList.toggle("hidden", !tc.gradCircle);
+        document.getElementById("opt-tc-gc-size").value = tc.gradCircleSizePct;
+        document.getElementById("opt-tc-gc-x").value = tc.gradCirclePosX;
+        document.getElementById("opt-tc-gc-y").value = tc.gradCirclePosY;
+        document.getElementById("opt-tc-gc-invert").checked = tc.gradCircleInvert;
+        document.getElementById("opt-tc-gc-stroke-enabled").checked = tc.gradCircleStrokeEnabled;
+        document.getElementById("opt-tc-gc-stroke-color").value = tc.gradCircleStrokeColor;
+        document.getElementById("opt-tc-gc-stroke-width").value = tc.gradCircleStrokeWidth;
         document.getElementById("opt-tc-circle-stroke").value = tc.circleStroke;
         document.getElementById("opt-tc-circle-fill-enabled").checked = tc.circleFillEnabled;
         document.getElementById("opt-tc-circle-fill").value = tc.circleFill;
@@ -3200,14 +3272,34 @@
         ["opt-tc-circle", "circle"],
         ["opt-tc-cross", "cross"],
         ["opt-tc-diagonals", "diagonals"],
+        ["opt-tc-grad-circle", "gradCircle"],
+        ["opt-tc-gc-invert", "gradCircleInvert"],
+        ["opt-tc-gc-stroke-enabled", "gradCircleStrokeEnabled"],
         ["opt-tc-circle-fill-enabled", "circleFillEnabled"]
       ].forEach(([id, key]) => {
         const el = document.getElementById(id);
-        if (el) el.addEventListener("change", (e) => setGlobalTc(key, e.target.checked));
+        if (el) el.addEventListener("change", (e) => {
+          setGlobalTc(key, e.target.checked);
+          if (key === "gradCircle") this.updateDisplayModeControls();
+        });
+      });
+      [
+        ["opt-tc-gc-size", "gradCircleSizePct", 5, 100],
+        ["opt-tc-gc-x", "gradCirclePosX", 0, 100],
+        ["opt-tc-gc-y", "gradCirclePosY", 0, 100],
+        ["opt-tc-gc-stroke-width", "gradCircleStrokeWidth", 1, 20]
+      ].forEach(([id, key, min, max]) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener("input", (e) => {
+          const v = parseFloat(e.target.value);
+          if (isNaN(v)) return;
+          setGlobalTc(key, Math.max(min, Math.min(max, v)));
+        });
       });
       [
         ["opt-tc-circle-stroke", "circleStroke"],
         ["opt-tc-circle-fill", "circleFill"],
+        ["opt-tc-gc-stroke-color", "gradCircleStrokeColor"],
         ["opt-tc-line-color", "lineColor"]
       ].forEach(([id, key]) => {
         const el = document.getElementById(id);
@@ -3476,7 +3568,37 @@
             <label class="setting-row"><span>Círculo central</span><input type="checkbox" id="screen-tc-circle" ${tc.circle ? "checked" : ""}></label>
             <label class="setting-row"><span>Eje en cruz</span><input type="checkbox" id="screen-tc-cross" ${tc.cross ? "checked" : ""}></label>
             <label class="setting-row"><span>Diagonales (X)</span><input type="checkbox" id="screen-tc-diagonals" ${tc.diagonals ? "checked" : ""}></label>
+            <label class="setting-row"><span>Círculo con degradado</span><input type="checkbox" id="screen-tc-grad-circle" ${tc.gradCircle ? "checked" : ""}></label>
           </div>
+          ${tc.gradCircle ? `
+          <div class="form-grid-3">
+            <div class="form-group">
+              <label for="screen-tc-gc-size"><span>Diámetro</span><span class="label-unit">%</span></label>
+              <input type="number" id="screen-tc-gc-size" class="form-input" min="5" max="100" step="1" value="${tc.gradCircleSizePct}">
+            </div>
+            <div class="form-group">
+              <label for="screen-tc-gc-x"><span>Pos X</span><span class="label-unit">%</span></label>
+              <input type="number" id="screen-tc-gc-x" class="form-input" min="0" max="100" step="1" value="${tc.gradCirclePosX}">
+            </div>
+            <div class="form-group">
+              <label for="screen-tc-gc-y"><span>Pos Y</span><span class="label-unit">%</span></label>
+              <input type="number" id="screen-tc-gc-y" class="form-input" min="0" max="100" step="1" value="${tc.gradCirclePosY}">
+            </div>
+          </div>
+          <label class="setting-row"><span>Invertir degradado</span><input type="checkbox" id="screen-tc-gc-invert" ${tc.gradCircleInvert ? "checked" : ""}></label>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="screen-tc-gc-stroke-color">Borde</label>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" id="screen-tc-gc-stroke-enabled" ${tc.gradCircleStrokeEnabled ? "checked" : ""} title="Activar borde">
+                <input type="color" id="screen-tc-gc-stroke-color" class="color-input-native" value="${tc.gradCircleStrokeColor}">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="screen-tc-gc-stroke-width"><span>Grosor borde</span><span class="label-unit">px</span></label>
+              <input type="number" id="screen-tc-gc-stroke-width" class="form-input" min="1" max="20" step="1" value="${tc.gradCircleStrokeWidth}">
+            </div>
+          </div>` : ""}
           <div class="form-grid-3">
             <div class="form-group">
               <label for="screen-tc-circle-stroke">Borde círculo</label>
@@ -3895,14 +4017,34 @@
           ["screen-tc-circle", "circle"],
           ["screen-tc-cross", "cross"],
           ["screen-tc-diagonals", "diagonals"],
+          ["screen-tc-grad-circle", "gradCircle"],
+          ["screen-tc-gc-invert", "gradCircleInvert"],
+          ["screen-tc-gc-stroke-enabled", "gradCircleStrokeEnabled"],
           ["screen-tc-circle-fill-enabled", "circleFillEnabled"]
         ].forEach(([id, key]) => {
           const el = getEl(id);
-          if (el) el.addEventListener("change", (e) => setScreenTc(key, e.target.checked));
+          if (el) el.addEventListener("change", (e) => {
+            setScreenTc(key, e.target.checked);
+            if (key === "gradCircle") this.updateActiveScreenForm();
+          });
+        });
+        [
+          ["screen-tc-gc-size", "gradCircleSizePct", 5, 100],
+          ["screen-tc-gc-x", "gradCirclePosX", 0, 100],
+          ["screen-tc-gc-y", "gradCirclePosY", 0, 100],
+          ["screen-tc-gc-stroke-width", "gradCircleStrokeWidth", 1, 20]
+        ].forEach(([id, key, min, max]) => {
+          const el = getEl(id);
+          if (el) el.addEventListener("input", (e) => {
+            const v = parseFloat(e.target.value);
+            if (isNaN(v)) return;
+            setScreenTc(key, Math.max(min, Math.min(max, v)));
+          });
         });
         [
           ["screen-tc-circle-stroke", "circleStroke"],
           ["screen-tc-circle-fill", "circleFill"],
+          ["screen-tc-gc-stroke-color", "gradCircleStrokeColor"],
           ["screen-tc-line-color", "lineColor"]
         ].forEach(([id, key]) => {
           const el = getEl(id);
@@ -4540,6 +4682,15 @@
             if (tc.circle) {
               const cFill = tc.circleFillEnabled ? esc(tc.circleFill) : "none";
               out.push(`      <circle cx="${L.cx}" cy="${L.cy}" r="${L.r}" fill="${cFill}" stroke="${esc(tc.circleStroke)}" stroke-width="${L.strokeW}"/>`);
+            }
+            if (tc.gradCircle) {
+              const gc = RenderEngine.getGradCircleGeometry(tc, L);
+              const gId = uniqueId(`${gid}_tc_gc`, "tc_gc");
+              const inner = tc.gradCircleInvert ? "#000000" : "#ffffff";
+              const outer = tc.gradCircleInvert ? "#ffffff" : "#000000";
+              defs.push(`    <radialGradient id="${gId}" gradientUnits="userSpaceOnUse" cx="${gc.cx}" cy="${gc.cy}" r="${num(gc.r)}"><stop offset="0" stop-color="${inner}"/><stop offset="1" stop-color="${outer}"/></radialGradient>`);
+              const strokeAttr = tc.gradCircleStrokeEnabled ? ` stroke="${esc(tc.gradCircleStrokeColor)}" stroke-width="${tc.gradCircleStrokeWidth}"` : "";
+              out.push(`      <circle cx="${gc.cx}" cy="${gc.cy}" r="${num(gc.r)}" fill="url(#${gId})"${strokeAttr}/>`);
             }
             if (tc.cross) {
               const ch = Math.floor(L.strokeW / 2);
