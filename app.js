@@ -675,6 +675,36 @@
 
       const showSub = state.settings.showSublabels && heightPx >= 70 && widthPx >= 90;
       const labelY = showSub ? centerY - fontSize * 0.45 : centerY;
+
+      // Fondo opcional de la etiqueta (undefined = sin fondo)
+      if (screen.labelBgEnabled) {
+        const pad = Math.max(0, screen.labelBgPadding !== undefined ? screen.labelBgPadding : 10);
+        let maxW = ctx.measureText(label).width;
+        let top = labelY - fontSize / 2;
+        let bottom = labelY + fontSize / 2;
+        if (showSub) {
+          const subFs = Math.max(10, Math.floor(fontSize * 0.38));
+          const pt = screen.pitchReal ? `${screen.pitchReal.toFixed(3)} mm` : `${screen.pitch} mm`;
+          ctx.font = `300 ${subFs}px ${FONT_MAIN}`;
+          maxW = Math.max(
+            maxW,
+            ctx.measureText(`${location} • P${pt}`).width,
+            ctx.measureText(`${widthPx}×${heightPx} px (${cols}×${rows} mod)`).width
+          );
+          bottom = centerY + fontSize * 0.35 + subFs * 1.35 + subFs / 2;
+          ctx.font = `${fontWeight} ${fontSize}px ${FONT_MAIN}`;
+        }
+        const bx = Math.round(centerX - maxW / 2 - pad);
+        const by = Math.round(top - pad);
+        const bw = Math.round(maxW + pad * 2);
+        const bh = Math.round(bottom - top + pad * 2);
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, screen.labelBgOpacity !== undefined ? screen.labelBgOpacity : 1));
+        ctx.fillStyle = screen.labelBgColor || "#000000";
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.restore();
+        ctx.fillStyle = fontColor;
+      }
       ctx.fillText(label, centerX, labelY);
 
       if (showSub) {
@@ -2924,6 +2954,30 @@
                 <input type="text" id="screen-label-color-hex" class="color-input-hex" value="${screen.labelColor || '#ffffff'}" maxlength="7">
               </div>
             </div>
+            <div class="form-group">
+              <label class="setting-row">
+                <span>Fondo de etiqueta</span>
+                <input type="checkbox" id="screen-label-bg-enabled" ${screen.labelBgEnabled ? "checked" : ""}>
+              </label>
+            </div>
+            ${screen.labelBgEnabled ? `
+            <div class="form-grid-3">
+              <div class="form-group">
+                <label>Color fondo</label>
+                <div class="color-picker-pair">
+                  <input type="color" id="screen-label-bg-picker" class="color-input-native" value="${screen.labelBgColor || '#000000'}">
+                  <input type="text" id="screen-label-bg-hex" class="color-input-hex" value="${screen.labelBgColor || '#000000'}" maxlength="7">
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="screen-label-bg-opacity"><span>Opacidad</span><span class="label-unit">%</span></label>
+                <input type="number" id="screen-label-bg-opacity" class="form-input" min="0" max="100" step="1" value="${Math.round((screen.labelBgOpacity !== undefined ? screen.labelBgOpacity : 1) * 100)}">
+              </div>
+              <div class="form-group">
+                <label for="screen-label-bg-padding"><span>Padding</span><span class="label-unit">px</span></label>
+                <input type="number" id="screen-label-bg-padding" class="form-input" min="0" max="500" step="1" value="${screen.labelBgPadding !== undefined ? screen.labelBgPadding : 10}">
+              </div>
+            </div>` : ""}
           </div>
         </div>
 
@@ -3119,6 +3173,48 @@
           Persistence.saveAuto();
         }
       });
+
+      getEl("screen-label-bg-enabled").addEventListener("change", (e) => {
+        screen.labelBgEnabled = e.target.checked;
+        if (screen.labelBgEnabled) {
+          if (screen.labelBgColor === undefined) screen.labelBgColor = "#000000";
+          if (screen.labelBgOpacity === undefined) screen.labelBgOpacity = 1;
+          if (screen.labelBgPadding === undefined) screen.labelBgPadding = 10;
+        }
+        RenderEngine.render();
+        Persistence.saveAuto();
+        this.updateActiveScreenForm();
+      });
+      if (screen.labelBgEnabled) {
+        const bgPicker = getEl("screen-label-bg-picker");
+        const bgHex = getEl("screen-label-bg-hex");
+        bgPicker.addEventListener("input", (e) => {
+          screen.labelBgColor = e.target.value;
+          bgHex.value = e.target.value;
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        bgHex.addEventListener("change", (e) => {
+          const val = e.target.value.trim();
+          if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+            screen.labelBgColor = val;
+            bgPicker.value = val;
+            RenderEngine.render();
+            Persistence.saveAuto();
+          }
+        });
+        getEl("screen-label-bg-opacity").addEventListener("input", (e) => {
+          const v = parseFloat(e.target.value);
+          screen.labelBgOpacity = Math.max(0, Math.min(1, (isNaN(v) ? 100 : v) / 100));
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+        getEl("screen-label-bg-padding").addEventListener("input", (e) => {
+          screen.labelBgPadding = Math.max(0, parseInt(e.target.value, 10) || 0);
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+      }
 
       getEl("screen-fixed-mode").addEventListener("change", (e) => {
         screen.fixedMode = e.target.value;
@@ -3409,7 +3505,11 @@
         y: newY,
         labelColor: "#ffffff",
         labelFontWeight: "300",
-        labelFontSize: 0
+        labelFontSize: 0,
+        labelBgEnabled: false,
+        labelBgColor: "#000000",
+        labelBgOpacity: 1,
+        labelBgPadding: 10
       };
 
       CalcEngine.recalculate(newScreen);
