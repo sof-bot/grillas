@@ -588,6 +588,30 @@
               </div>
             </div>
           </div>
+
+          <div class="editor-card">
+            <div class="editor-card-title"><span>Exportar MP4 (H.264 · 30 fps)</span></div>
+            <div class="form-grid-2" style="align-items:end;">
+              <div class="form-group" style="margin:0;">
+                <label for="anim-mp4-quality">Calidad</label>
+                <select id="anim-mp4-quality" class="form-select">
+                  <option value="normal">Normal (8–14 Mbps)</option>
+                  <option value="high">Alta (12–20 Mbps)</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin:0;">
+                <button type="button" id="btn-export-mp4" class="btn btn-primary btn-block">Exportar MP4</button>
+              </div>
+            </div>
+            <div id="anim-mp4-progress-box" class="hidden" style="margin-top:8px;">
+              <progress id="anim-mp4-progress" value="0" max="100" style="width:100%;height:10px;"></progress>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
+                <small id="anim-mp4-progress-text" class="small-text">0 / 180 cuadros</small>
+                <button type="button" id="btn-cancel-mp4" class="btn btn-secondary btn-sm">Cancelar</button>
+              </div>
+            </div>
+            <small id="anim-mp4-status" class="small-text hidden" style="display:block;margin-top:6px;"></small>
+          </div>
         </section>
 
       </aside>
@@ -639,6 +663,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/svg2pdf.js@2.2.4/dist/svg2pdf.umd.min.js"></script>
+  <script src="libs/mp4-muxer.js"></script>
   <script src="default-project.js"></script>
   <script src="app.js"></script>
 </body>

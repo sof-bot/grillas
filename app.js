@@ -804,6 +804,48 @@
       state.canvas.computedHeight = Math.max(600, maxY);
     },
 
+    /**
+     * Dibuja un cuadro completo del mapeo (fondo, pantallas animadas en t y capas gráficas).
+     * Única función compartida por la vista previa y la exportación MP4.
+     */
+    renderFrame(ctx, w, h, t, options = {}) {
+      const animate = options.animate !== undefined ? options.animate : true;
+      const showOverlays = !!options.showOverlays;
+      const allowTransparent = options.transparentBg !== undefined ? options.transparentBg : true;
+
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, w, h);
+
+      if (allowTransparent && state.settings.canvasBg === "transparent") {
+        this.renderTransparencyGrid(ctx, w, h);
+      } else {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      if (showOverlays) {
+        ctx.strokeStyle = "#333333";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+      }
+
+      // Pantallas LED
+      state.screens.forEach((screen, idx) => {
+        if (screen.visible === false) return;
+        const isSelected = showOverlays && state.selectedScreenIds.includes(screen.id);
+        const isPrimary = showOverlays && screen.id === state.selectedScreenId;
+        const intensity = animate ? getScreenIntensity(idx, t) : 1;
+        this.renderScreen(ctx, screen, isSelected, isPrimary, intensity);
+      });
+
+      // Capas Gráficas (Texto, Figuras, Líneas, Degradados)
+      state.layers.forEach(layer => {
+        if (!layer.visible) return;
+        const isSelected = showOverlays && layer.id === state.selectedLayerId;
+        this.renderLayer(ctx, layer, isSelected);
+      });
+    },
+
     render() {
       if (!this.canvas || !this.ctx) return;
 
@@ -818,37 +860,11 @@
       }
 
       const ctx = this.ctx;
-      ctx.imageSmoothingEnabled = false;
-
-      // 1. Fondo del lienzo
-      ctx.clearRect(0, 0, w, h);
-      if (state.settings.canvasBg === "transparent") {
-        this.renderTransparencyGrid(ctx, w, h);
-      } else {
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(0, 0, w, h);
-      }
-
-      // Borde del lienzo en gris oscuro (#333333)
-      ctx.strokeStyle = "#333333";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
-
-      // 2. Pantallas LED
-      state.screens.forEach((screen, idx) => {
-        if (screen.visible === false) return;
-        const isSelected = state.selectedScreenIds.includes(screen.id);
-        const isPrimary = screen.id === state.selectedScreenId;
-        const intensity = AnimationEngine.isActive() ? getScreenIntensity(idx, AnimationEngine.currentTime) : 1;
-        this.renderScreen(ctx, screen, isSelected, isPrimary, intensity);
-      });
-
-      // 3. Capas Gráficas (Texto, Figuras, Líneas, Degradados)
-      state.layers.forEach(layer => {
-        if (layer.visible) {
-          const isSelected = layer.id === state.selectedLayerId;
-          this.renderLayer(ctx, layer, isSelected);
-        }
+      const isAnim = AnimationEngine.isActive();
+      this.renderFrame(ctx, w, h, isAnim ? AnimationEngine.currentTime : 0, {
+        animate: isAnim,
+        showOverlays: true,
+        transparentBg: true
       });
 
       // 4. Manijas de transformación para la capa seleccionada
@@ -4909,6 +4925,9 @@
    * =========================================================================== */
   const Persistence = {
     saveTimeout: null,
+    projectName: "led-grid-mapper",
+    mp4Exporting: false,
+    mp4Cancelled: false,
 
     init() {
       this.bindButtons();
@@ -4924,6 +4943,170 @@
         this.importJSON(e.target.files[0]);
         e.target.value = "";
       });
+      const btnMp4 = document.getElementById("btn-export-mp4");
+      if (btnMp4) btnMp4.addEventListener("click", () => this.exportMP4());
+      const btnCancelMp4 = document.getElementById("btn-cancel-mp4");
+      if (btnCancelMp4) btnCancelMp4.addEventListener("click", () => { this.mp4Cancelled = true; });
+    },
+
+    async exportMP4() {
+      if (this.mp4Exporting) return;
+
+      const btnMp4 = document.getElementById("btn-export-mp4");
+      const progBox = document.getElementById("anim-mp4-progress-box");
+      const progBar = document.getElementById("anim-mp4-progress");
+      const progText = document.getElementById("anim-mp4-progress-text");
+      const statusEl = document.getElementById("anim-mp4-status");
+      const qualitySel = document.getElementById("anim-mp4-quality");
+
+      const showError = (msg) => {
+        if (statusEl) {
+          statusEl.textContent = msg;
+          statusEl.classList.remove("hidden");
+        }
+        alert(msg);
+      };
+
+      if (statusEl) statusEl.classList.add("hidden");
+
+      const muxerLib = window.Mp4Muxer;
+      if (!muxerLib || !muxerLib.Muxer || !muxerLib.ArrayBufferTarget) {
+        showError("No se encontró la librería mp4-muxer. Agregá el archivo libs/mp4-muxer.js para exportar MP4.");
+        return;
+      }
+
+      if (typeof VideoEncoder === "undefined" || typeof VideoFrame === "undefined") {
+        showError("Tu navegador no soporta WebCodecs (VideoEncoder / VideoFrame), necesario para exportar MP4.");
+        return;
+      }
+
+      RenderEngine.computeCanvasBounds();
+      const rawW = state.canvas.computedWidth;
+      const rawH = state.canvas.computedHeight;
+      const encW = rawW % 2 === 0 ? rawW : rawW + 1;
+      const encH = rawH % 2 === 0 ? rawH : rawH + 1;
+
+      const quality = qualitySel && qualitySel.value === "high" ? "high" : "normal";
+      const pxScale = Math.min(1, Math.max(0, (encW * encH - 1280 * 720) / (3840 * 2160 - 1280 * 720)));
+      const bitrate = quality === "high"
+        ? Math.round(12_000_000 + pxScale * 8_000_000)
+        : Math.round(8_000_000 + pxScale * 6_000_000);
+
+      const FPS = AnimationEngine.FPS || 30;
+      const codecs = encW * encH > 2_500_000
+        ? ["avc1.640034", "avc1.640033", "avc1.64003e", "avc1.4d0034", "avc1.64002a", "avc1.4d002a", "avc1.42001f"]
+        : ["avc1.64002a", "avc1.4d002a", "avc1.640033", "avc1.640034", "avc1.4d0034", "avc1.64003e", "avc1.42001f"];
+
+      let supportedConfig = null;
+      for (const codec of codecs) {
+        try {
+          const res = await VideoEncoder.isConfigSupported({ codec, width: encW, height: encH, bitrate, framerate: FPS });
+          if (res && res.supported) {
+            supportedConfig = res.config || { codec, width: encW, height: encH, bitrate, framerate: FPS };
+            break;
+          }
+        } catch (_) { /* probar siguiente perfil */ }
+      }
+
+      if (!supportedConfig) {
+        showError(`El codificador H.264 del navegador no soporta la resolución ${encW} × ${encH} px (demasiado grande para H.264).`);
+        return;
+      }
+
+      const dur = AnimationEngine.getSettings().loopDuration;
+      const totalFrames = Math.max(2, Math.round(dur * FPS));
+      const frameDurationUs = Math.round(1_000_000 / FPS);
+
+      const offscreen = document.createElement("canvas");
+      offscreen.width = encW;
+      offscreen.height = encH;
+      const oCtx = offscreen.getContext("2d", { alpha: false });
+
+      this.mp4Exporting = true;
+      this.mp4Cancelled = false;
+      if (btnMp4) btnMp4.disabled = true;
+      if (progBox) progBox.classList.remove("hidden");
+      if (progBar) progBar.value = 0;
+      if (progText) progText.textContent = `0 / ${totalFrames} cuadros (0%)`;
+
+      let encoder = null;
+      let encodeError = null;
+      try {
+        const target = new muxerLib.ArrayBufferTarget();
+        const muxer = new muxerLib.Muxer({
+          target,
+          video: { codec: "avc", width: encW, height: encH },
+          fastStart: "in-memory"
+        });
+
+        encoder = new VideoEncoder({
+          output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+          error: (err) => { encodeError = err; }
+        });
+        encoder.configure(supportedConfig);
+
+        for (let n = 0; n < totalFrames; n++) {
+          if (this.mp4Cancelled || encodeError) break;
+
+          const t = n / FPS;
+          RenderEngine.renderFrame(oCtx, encW, encH, t, {
+            animate: true,
+            showOverlays: false,
+            transparentBg: false
+          });
+
+          const frame = new VideoFrame(offscreen, {
+            timestamp: Math.round((n * 1_000_000) / FPS),
+            duration: frameDurationUs
+          });
+          encoder.encode(frame, { keyFrame: n % FPS === 0 });
+          frame.close();
+
+          const pct = Math.round(((n + 1) / totalFrames) * 100);
+          if (progBar) progBar.value = pct;
+          if (progText) progText.textContent = `${n + 1} / ${totalFrames} cuadros (${pct}%)`;
+
+          while (encoder.encodeQueueSize > 8 && !this.mp4Cancelled && !encodeError) {
+            await new Promise(r => setTimeout(r, 8));
+          }
+          await new Promise(r => setTimeout(r, 0));
+        }
+
+        if (encodeError) throw encodeError;
+
+        if (this.mp4Cancelled) {
+          if (encoder.state !== "closed") encoder.close();
+          if (statusEl) {
+            statusEl.textContent = "Exportación MP4 cancelada.";
+            statusEl.classList.remove("hidden");
+          }
+          return;
+        }
+
+        await encoder.flush();
+        encoder.close();
+        muxer.finalize();
+
+        const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const safeName = (this.projectName || "led-grid-mapper").replace(/[^A-Za-z0-9_\-]+/g, "-").replace(/^-+|-+$/g, "") || "led-grid-mapper";
+        a.href = url;
+        a.download = `${safeName}.mp4`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        if (encoder && encoder.state !== "closed") {
+          try { encoder.close(); } catch (_) { }
+        }
+        showError(`No se pudo exportar el MP4 (${encW} × ${encH} px): ${err && err.message ? err.message : err}`);
+      } finally {
+        this.mp4Exporting = false;
+        if (btnMp4) btnMp4.disabled = false;
+        if (progBox) progBox.classList.add("hidden");
+      }
     },
 
     exportPNG() {
@@ -5353,6 +5536,7 @@
         try {
           const data = JSON.parse(e.target.result);
           if (await this.applyProjectData(data)) {
+            this.projectName = file.name.replace(/\.json$/i, "") || "led-grid-mapper";
             UIController.renderLocationsList();
             UIController.updateScreensSelector();
             UIController.updateActiveScreenForm();
