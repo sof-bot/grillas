@@ -5163,6 +5163,7 @@
 
     async exportMP4() {
       if (this.mp4Exporting) return;
+      this.mp4Exporting = true; // se libera siempre en finally
 
       const btnMp4 = document.getElementById("btn-export-mp4");
       const progBox = document.getElementById("anim-mp4-progress-box");
@@ -5179,83 +5180,105 @@
         statusEl.textContent = msg;
         statusEl.classList.remove("hidden");
       };
-      const showError = (msg) => { setStatus(msg); alert(msg); };
+      const showError = (msg, err) => {
+        console.error("[Exportar MP4] " + msg, err || "");
+        setStatus(msg);
+        alert(msg);
+      };
+      const errMsg = (err) => (err && err.message ? err.message : String(err));
 
-      if (statusEl) statusEl.classList.add("hidden");
+      // Objetos de ESTA exportación (nunca globales ni reutilizados)
+      let output = null, source = null, offscreen = null, mb = null;
+      let encW = 0, encH = 0;
+      const locked = [];
+      let wasPlaying = false;
+      let stage = "inicio";
 
-      // a. Tamaño real del lienzo (par superior si es impar)
-      RenderEngine.computeCanvasBounds();
-      const encW = state.canvas.computedWidth + (state.canvas.computedWidth % 2);
-      const encH = state.canvas.computedHeight + (state.canvas.computedHeight % 2);
-
-      const fps = Math.max(1, Number(fpsSel && fpsSel.value) || 30);
-      const mask = !!bgSel && bgSel.value === "mask";
-      const quality = qualitySel && qualitySel.value === "high" ? "high" : "normal";
-      const pxScale = Math.min(1, Math.max(0, (encW * encH - 1280 * 720) / (3840 * 2160 - 1280 * 720)));
-      let bitrate = quality === "high"
-        ? Math.round(12_000_000 + pxScale * 8_000_000)
-        : Math.round(8_000_000 + pxScale * 6_000_000);
-      bitrate = Math.round(bitrate * fps / 30);
-
-      // Carga diferida de Mediabunny
-      let mb;
       try {
+        if (statusEl) statusEl.classList.add("hidden");
         if (btnMp4) btnMp4.disabled = true;
+        this.mp4Cancelled = false;
+
+        // a. Tamaño real del lienzo (par superior si es impar)
+        RenderEngine.computeCanvasBounds();
+        encW = state.canvas.computedWidth + (state.canvas.computedWidth % 2);
+        encH = state.canvas.computedHeight + (state.canvas.computedHeight % 2);
+
+        const fps = Math.max(1, Number(fpsSel && fpsSel.value) || 30);
+        const mask = !!bgSel && bgSel.value === "mask";
+        const quality = qualitySel && qualitySel.value === "high" ? "high" : "normal";
+        const pxScale = Math.min(1, Math.max(0, (encW * encH - 1280 * 720) / (3840 * 2160 - 1280 * 720)));
+        // Bits por segundo (entero)
+        const baseBitrate = Math.round((quality === "high"
+          ? 12_000_000 + pxScale * 8_000_000
+          : 8_000_000 + pxScale * 6_000_000) * fps / 30);
+
+        // Aviso de lienzo grande (límites H.264: nivel 5.1 = 4096 px de lado y 983 040 macrobloques/s)
+        const macroblocksPerSec = Math.ceil(encW / 16) * Math.ceil(encH / 16) * fps;
+        if (encW > 4096 || encH > 4096 || macroblocksPerSec > 983040) {
+          const warn = `Aviso: el lienzo es grande (${encW} × ${encH} px a ${fps} fps) y puede superar lo que soporta H.264/el navegador. ` +
+            `Si falla, bajá los fps a 25/24 o elegí una calidad menor.`;
+          console.warn("[Exportar MP4] " + warn);
+          setStatus(warn);
+        }
+
+        // Carga diferida de Mediabunny
+        stage = "carga de la librería Mediabunny";
         setStatus("Cargando librería de exportación…");
         mb = await import("https://cdn.jsdelivr.net/npm/mediabunny@1.62.1/dist/bundles/mediabunny.min.mjs");
-      } catch (err) {
-        if (btnMp4) btnMp4.disabled = false;
-        showError("No se pudo cargar la librería Mediabunny. Revisá tu conexión a internet e intentá de nuevo.");
-        return;
-      }
 
-      // b. Soporte del codificador
-      let canEncode = false;
-      try {
-        canEncode = await mb.canEncodeVideo("avc", { width: encW, height: encH });
-      } catch (_) { canEncode = false; }
-      if (!canEncode) {
-        if (btnMp4) btnMp4.disabled = false;
-        showError(`Este navegador no puede codificar H.264 a ${encW} × ${encH} px. Probá en Chrome o Edge, o bajá la resolución del lienzo.`);
-        return;
-      }
+        // b. Soporte del codificador con el bitrate elegido; si no, probar bitrates menores
+        stage = "comprobación del codificador H.264 (canEncodeVideo)";
+        let bitrate = 0;
+        for (const factor of [1, 0.8, 0.6, 0.4]) {
+          const candidate = Math.round(baseBitrate * factor);
+          if (await mb.canEncodeVideo("avc", { width: encW, height: encH, bitrate: candidate })) {
+            bitrate = candidate;
+            break;
+          }
+        }
+        if (!bitrate) {
+          throw new Error(`Este navegador no puede codificar H.264 a ${encW} × ${encH} px / ${fps} fps ni con bitrate reducido ` +
+            `(probado hasta ${(Math.round(baseBitrate * 0.4) / 1e6).toFixed(1)} Mbps). Bajá los fps a 25/24, la calidad o la resolución del lienzo, o probá en Chrome/Edge.`);
+        }
+        const usedMbps = (bitrate / 1e6).toFixed(1);
+        const bitrateNote = bitrate === baseBitrate
+          ? `Bitrate: ${usedMbps} Mbps.`
+          : `Bitrate pedido ${(baseBitrate / 1e6).toFixed(1)} Mbps no aceptado; se usó ${usedMbps} Mbps.`;
 
-      const totalFrames = Math.max(1, Math.round(AnimationEngine.getSettings().loopDuration * fps));
+        const totalFrames = Math.max(1, Math.round(AnimationEngine.getSettings().loopDuration * fps));
 
-      // c. Canvas fuera de pantalla
-      const offscreen = document.createElement("canvas");
-      offscreen.width = encW;
-      offscreen.height = encH;
-      const oCtx = offscreen.getContext("2d", { alpha: false });
+        // c. Canvas fuera de pantalla (nuevo)
+        offscreen = document.createElement("canvas");
+        offscreen.width = encW;
+        offscreen.height = encH;
+        const oCtx = offscreen.getContext("2d", { alpha: false });
 
-      // Bloqueo de UI y pausa de la vista previa
-      const wasPlaying = AnimationEngine.status === "playing";
-      AnimationEngine.pause();
-      const locked = [];
-      lockRoot.querySelectorAll("input, select, button").forEach(el => {
-        if (el.id === "btn-cancel-mp4" || el.disabled) return;
-        el.disabled = true;
-        locked.push(el);
-      });
-      this.mp4Exporting = true;
-      this.mp4Cancelled = false;
-      if (progBox) progBox.classList.remove("hidden");
-      if (progBar) progBar.value = 0;
-      if (progText) progText.textContent = `Cuadro 0 de ${totalFrames}`;
-      setStatus("Exportando…");
+        // Bloqueo de UI y pausa de la vista previa
+        wasPlaying = AnimationEngine.status === "playing";
+        AnimationEngine.pause();
+        lockRoot.querySelectorAll("input, select, button").forEach(el => {
+          if (el.id === "btn-cancel-mp4" || el === btnMp4 || el.disabled) return;
+          el.disabled = true;
+          locked.push(el);
+        });
+        if (progBox) progBox.classList.remove("hidden");
+        if (progBar) progBar.value = 0;
+        if (progText) progText.textContent = `Cuadro 0 de ${totalFrames}`;
+        setStatus(`Exportando… ${bitrateNote}`);
 
-      let output = null;
-      try {
-        // d. Salida
+        // d. Salida (nueva)
+        stage = "creación del archivo";
         output = new mb.Output({
           format: new mb.Mp4OutputFormat({ fastStart: "in-memory" }),
           target: new mb.BufferTarget()
         });
-        const source = new mb.CanvasSource(offscreen, { codec: "avc", bitrate });
+        source = new mb.CanvasSource(offscreen, { codec: "avc", bitrate });
         output.addVideoTrack(source, { frameRate: fps });
         await output.start();
 
         // e. Cuadros: t = i / fps (el último es (N-1)/fps, no repite el primero)
+        stage = "codificación de cuadros (source.add)";
         for (let i = 0; i < totalFrames; i++) {
           if (this.mp4Cancelled) break;
           drawAnimationFrame(oCtx, i / fps, { mask });
@@ -5267,14 +5290,20 @@
         }
 
         if (this.mp4Cancelled) {
-          await output.cancel();
+          const o = output; output = null;
+          await o.cancel();
           setStatus("Exportación MP4 cancelada.");
           return;
         }
 
         // f. Finalizar y descargar
+        stage = "finalización del archivo (output.finalize)";
         await output.finalize();
-        const blob = new Blob([output.target.buffer], { type: "video/mp4" });
+        const buffer = output.target.buffer;
+        if (!buffer || !buffer.byteLength) {
+          throw new Error("El archivo MP4 resultó vacío (0 bytes); no se generó el video.");
+        }
+        const blob = new Blob([buffer], { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -5283,16 +5312,22 @@
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 10000);
-        setStatus(`Listo · ${(blob.size / (1024 * 1024)).toFixed(2)} MB`);
+        setStatus(`Listo · ${(blob.size / (1024 * 1024)).toFixed(2)} MB · ${bitrateNote}`);
       } catch (err) {
         if (output) { try { await output.cancel(); } catch (_) { } }
-        showError(`No se pudo exportar el MP4 (${encW} × ${encH} px): ${err && err.message ? err.message : err}`);
+        showError(`No se pudo exportar el MP4 (${encW} × ${encH} px), fallo en ${stage}: ${errMsg(err)}`, err);
       } finally {
         this.mp4Exporting = false;
+        this.mp4Cancelled = false;
         locked.forEach(el => { el.disabled = false; });
+        if (btnMp4) btnMp4.disabled = false;
         if (progBox) progBox.classList.add("hidden");
-        UIController.syncAnimationPlaybackUI();
-        if (wasPlaying) AnimationEngine.play(); else RenderEngine.render();
+        if (offscreen) { offscreen.width = 0; offscreen.height = 0; }
+        offscreen = null; source = null; output = null; mb = null;
+        try {
+          UIController.syncAnimationPlaybackUI();
+          if (wasPlaying) AnimationEngine.play(); else RenderEngine.render();
+        } catch (e) { console.error("[Exportar MP4] No se pudo restaurar la vista previa", e); }
       }
     },
 
