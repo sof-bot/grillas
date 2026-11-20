@@ -1168,3 +1168,26 @@ a {
 ::-webkit-scrollbar-thumb:hover {
   background: #333333;
 }
+
+/* AUTO-DISTRIBUIR */
+.autopack-wrap { position: relative; }
+.autopack-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 200;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-md);
+}
+.autopack-panel.hidden { display: none; }
+.autopack-row { display: flex; align-items: center; gap: 6px; }
+.autopack-row .toolbar-label { margin-left: 0; }
+.autopack-input { width: 62px; padding: 1px 4px; text-align: center; }
+.autopack-result { font-size: 11px; color: var(--text-secondary); min-height: 14px; }
+.autopack-result.error { color: #ff6b6b; }

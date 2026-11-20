@@ -757,6 +757,16 @@
 
   const getScreenIntensity = (screenIndex, t) => AnimationEngine.getScreenIntensity(screenIndex, t);
 
+  /** Dibuja el cuadro completo de la animación en el instante t (s) sobre ctx (canvas del tamaño real del lienzo). */
+  const drawAnimationFrame = (ctx, tSegundos, opts = {}) => {
+    RenderEngine.renderFrame(ctx, ctx.canvas.width, ctx.canvas.height, tSegundos, {
+      animate: true,
+      showOverlays: false,
+      transparentBg: false,
+      mask: !!opts.mask
+    });
+  };
+
 
   /* ===========================================================================
    * 5. RENDER ENGINE (Dibujo de Pantallas, Capas Gráficas y Manijas)
@@ -827,6 +837,17 @@
         ctx.strokeStyle = "#333333";
         ctx.lineWidth = 1;
         ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+      }
+
+      // Modo máscara: solo la animación (blanco x intensidad) sobre negro, sin damero, etiquetas ni capas
+      if (options.mask) {
+        state.screens.forEach((screen, idx) => {
+          if (screen.visible === false) return;
+          const v = Math.round(255 * Math.max(0, Math.min(1, animate ? getScreenIntensity(idx, t) : 1)));
+          ctx.fillStyle = `rgb(${v}, ${v}, ${v})`;
+          ctx.fillRect(Math.round(screen.x), Math.round(screen.y), Math.round(screen.widthPx), Math.round(screen.heightPx));
+        });
+        return;
       }
 
       // Pantallas LED
@@ -2792,10 +2813,104 @@
         Persistence.saveAuto();
       });
 
+      this.initAutoPack();
+
       document.getElementById("btn-zoom-in").addEventListener("click", () => ViewportEngine.zoomBy(1));
       document.getElementById("btn-zoom-out").addEventListener("click", () => ViewportEngine.zoomBy(-1));
       document.getElementById("btn-zoom-100").addEventListener("click", () => ViewportEngine.zoom100());
       document.getElementById("btn-zoom-fit").addEventListener("click", () => ViewportEngine.zoomToFit());
+    },
+
+    /** Panel "Auto-distribuir": empaqueta las pantallas visibles con LEDPacker (un solo paso de historial). */
+    initAutoPack() {
+      const toggle = document.getElementById("btn-autopack-toggle");
+      const panel = document.getElementById("autopack-panel");
+      const runBtn = document.getElementById("btn-autopack-run");
+      if (!toggle || !panel || !runBtn) return;
+      const maxWEl = document.getElementById("autopack-max-w");
+      const maxHEl = document.getElementById("autopack-max-h");
+      const gapEl = document.getElementById("autopack-gap");
+      const snapEl = document.getElementById("autopack-snap");
+      const resEl = document.getElementById("autopack-result");
+      const fmt = (n) => Math.round(n).toLocaleString("es-AR");
+      const showMsg = (text, isError) => {
+        resEl.textContent = text;
+        resEl.classList.toggle("error", !!isError);
+      };
+
+      toggle.addEventListener("click", (e) => {
+        e.stopPropagation();
+        panel.classList.toggle("hidden");
+      });
+      panel.addEventListener("click", (e) => e.stopPropagation());
+      document.addEventListener("click", () => panel.classList.add("hidden"));
+      panel.querySelectorAll(".autopack-preset").forEach(b => {
+        b.addEventListener("click", () => {
+          maxWEl.value = b.dataset.w;
+          maxHEl.value = b.dataset.h;
+        });
+      });
+
+      runBtn.addEventListener("click", () => {
+        if (typeof LEDPacker === "undefined") {
+          showMsg("No se pudo cargar packer.js.", true);
+          return;
+        }
+        const visibles = state.screens.filter(s => s.visible !== false);
+        if (visibles.length === 0) {
+          showMsg("No hay pantallas visibles.", true);
+          return;
+        }
+        const maxW = Math.max(100, parseInt(maxWEl.value, 10) || 3840);
+        const maxH = Math.max(100, parseInt(maxHEl.value, 10) || 2160);
+        const gap = Math.max(0, parseInt(gapEl.value, 10) || 0);
+        const snap = parseInt(snapEl.value, 10) || 1;
+
+        const result = LEDPacker.packScreens(
+          visibles.map(s => ({ id: s.id, w: s.widthPx, h: s.heightPx })),
+          { maxW, maxH, gap, snap, allowRotate: false }
+        );
+        if (!result.ok) {
+          showMsg(result.reason, true);
+          return;
+        }
+
+        // Registrar el estado previo para que todo el cambio sea un único paso de historial
+        clearTimeout(Persistence.saveTimeout);
+        HistoryEngine.commit();
+
+        result.placements.forEach(p => {
+          const s = state.screens.find(sc => sc.id === p.id);
+          if (s) { s.x = p.x; s.y = p.y; }
+        });
+        state.canvas.mode = "manual";
+        state.canvas.manualWidth = result.canvas.width;
+        state.canvas.manualHeight = result.canvas.height;
+
+        // Sincronizar controles de la barra superior y del formulario de pantalla
+        const modeSel = document.getElementById("canvas-mode-select");
+        if (modeSel) modeSel.value = "manual";
+        const manualDims = document.getElementById("manual-canvas-dimensions");
+        if (manualDims) manualDims.classList.remove("hidden");
+        const inW = document.getElementById("canvas-width-input");
+        if (inW) inW.value = state.canvas.manualWidth;
+        const inH = document.getElementById("canvas-height-input");
+        if (inH) inH.value = state.canvas.manualHeight;
+        const active = state.screens.find(s => s.id === state.selectedScreenId);
+        const posX = document.getElementById("screen-pos-x");
+        const posY = document.getElementById("screen-pos-y");
+        if (active && posX) posX.value = active.x;
+        if (active && posY) posY.value = active.y;
+
+        RenderEngine.render();
+        HistoryEngine.commit();
+        Persistence.saveAuto();
+
+        const total = result.canvas.width * result.canvas.height;
+        showMsg(`Lienzo ${fmt(result.canvas.width)} x ${fmt(result.canvas.height)} px. ` +
+          `Uso ${(result.efficiency * 100).toLocaleString("es-AR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% ` +
+          `(${fmt(result.usedPx)} de ${fmt(total)} px)`, false);
+      });
     },
 
     bindAlignmentToolbar() {
@@ -4958,154 +5073,129 @@
       const progText = document.getElementById("anim-mp4-progress-text");
       const statusEl = document.getElementById("anim-mp4-status");
       const qualitySel = document.getElementById("anim-mp4-quality");
+      const fpsSel = document.getElementById("anim-mp4-fps");
+      const bgSel = document.getElementById("anim-mp4-bg");
+      const lockRoot = document.getElementById("anim-effect").closest("section") || document.body;
 
-      const showError = (msg) => {
-        if (statusEl) {
-          statusEl.textContent = msg;
-          statusEl.classList.remove("hidden");
-        }
-        alert(msg);
+      const setStatus = (msg) => {
+        if (!statusEl) return;
+        statusEl.textContent = msg;
+        statusEl.classList.remove("hidden");
       };
+      const showError = (msg) => { setStatus(msg); alert(msg); };
 
       if (statusEl) statusEl.classList.add("hidden");
 
-      const muxerLib = window.Mp4Muxer;
-      if (!muxerLib || !muxerLib.Muxer || !muxerLib.ArrayBufferTarget) {
-        showError("No se encontró la librería mp4-muxer. Agregá el archivo libs/mp4-muxer.js para exportar MP4.");
-        return;
-      }
-
-      if (typeof VideoEncoder === "undefined" || typeof VideoFrame === "undefined") {
-        showError("Tu navegador no soporta WebCodecs (VideoEncoder / VideoFrame), necesario para exportar MP4.");
-        return;
-      }
-
+      // a. Tamaño real del lienzo (par superior si es impar)
       RenderEngine.computeCanvasBounds();
-      const rawW = state.canvas.computedWidth;
-      const rawH = state.canvas.computedHeight;
-      const encW = rawW % 2 === 0 ? rawW : rawW + 1;
-      const encH = rawH % 2 === 0 ? rawH : rawH + 1;
+      const encW = state.canvas.computedWidth + (state.canvas.computedWidth % 2);
+      const encH = state.canvas.computedHeight + (state.canvas.computedHeight % 2);
 
+      const fps = Math.max(1, Number(fpsSel && fpsSel.value) || 30);
+      const mask = !!bgSel && bgSel.value === "mask";
       const quality = qualitySel && qualitySel.value === "high" ? "high" : "normal";
       const pxScale = Math.min(1, Math.max(0, (encW * encH - 1280 * 720) / (3840 * 2160 - 1280 * 720)));
-      const bitrate = quality === "high"
+      let bitrate = quality === "high"
         ? Math.round(12_000_000 + pxScale * 8_000_000)
         : Math.round(8_000_000 + pxScale * 6_000_000);
+      bitrate = Math.round(bitrate * fps / 30);
 
-      const FPS = AnimationEngine.FPS || 30;
-      const codecs = encW * encH > 2_500_000
-        ? ["avc1.640034", "avc1.640033", "avc1.64003e", "avc1.4d0034", "avc1.64002a", "avc1.4d002a", "avc1.42001f"]
-        : ["avc1.64002a", "avc1.4d002a", "avc1.640033", "avc1.640034", "avc1.4d0034", "avc1.64003e", "avc1.42001f"];
-
-      let supportedConfig = null;
-      for (const codec of codecs) {
-        try {
-          const res = await VideoEncoder.isConfigSupported({ codec, width: encW, height: encH, bitrate, framerate: FPS });
-          if (res && res.supported) {
-            supportedConfig = res.config || { codec, width: encW, height: encH, bitrate, framerate: FPS };
-            break;
-          }
-        } catch (_) { /* probar siguiente perfil */ }
-      }
-
-      if (!supportedConfig) {
-        showError(`El codificador H.264 del navegador no soporta la resolución ${encW} × ${encH} px (demasiado grande para H.264).`);
+      // Carga diferida de Mediabunny
+      let mb;
+      try {
+        if (btnMp4) btnMp4.disabled = true;
+        setStatus("Cargando librería de exportación…");
+        mb = await import("https://cdn.jsdelivr.net/npm/mediabunny@1.62.1/dist/bundles/mediabunny.min.mjs");
+      } catch (err) {
+        if (btnMp4) btnMp4.disabled = false;
+        showError("No se pudo cargar la librería Mediabunny. Revisá tu conexión a internet e intentá de nuevo.");
         return;
       }
 
-      const dur = AnimationEngine.getSettings().loopDuration;
-      const totalFrames = Math.max(2, Math.round(dur * FPS));
-      const frameDurationUs = Math.round(1_000_000 / FPS);
+      // b. Soporte del codificador
+      let canEncode = false;
+      try {
+        canEncode = await mb.canEncodeVideo("avc", { width: encW, height: encH });
+      } catch (_) { canEncode = false; }
+      if (!canEncode) {
+        if (btnMp4) btnMp4.disabled = false;
+        showError(`Este navegador no puede codificar H.264 a ${encW} × ${encH} px. Probá en Chrome o Edge, o bajá la resolución del lienzo.`);
+        return;
+      }
 
+      const totalFrames = Math.max(1, Math.round(AnimationEngine.getSettings().loopDuration * fps));
+
+      // c. Canvas fuera de pantalla
       const offscreen = document.createElement("canvas");
       offscreen.width = encW;
       offscreen.height = encH;
       const oCtx = offscreen.getContext("2d", { alpha: false });
 
+      // Bloqueo de UI y pausa de la vista previa
+      const wasPlaying = AnimationEngine.status === "playing";
+      AnimationEngine.pause();
+      const locked = [];
+      lockRoot.querySelectorAll("input, select, button").forEach(el => {
+        if (el.id === "btn-cancel-mp4" || el.disabled) return;
+        el.disabled = true;
+        locked.push(el);
+      });
       this.mp4Exporting = true;
       this.mp4Cancelled = false;
-      if (btnMp4) btnMp4.disabled = true;
       if (progBox) progBox.classList.remove("hidden");
       if (progBar) progBar.value = 0;
-      if (progText) progText.textContent = `0 / ${totalFrames} cuadros (0%)`;
+      if (progText) progText.textContent = `Cuadro 0 de ${totalFrames}`;
+      setStatus("Exportando…");
 
-      let encoder = null;
-      let encodeError = null;
+      let output = null;
       try {
-        const target = new muxerLib.ArrayBufferTarget();
-        const muxer = new muxerLib.Muxer({
-          target,
-          video: { codec: "avc", width: encW, height: encH },
-          fastStart: "in-memory"
+        // d. Salida
+        output = new mb.Output({
+          format: new mb.Mp4OutputFormat({ fastStart: "in-memory" }),
+          target: new mb.BufferTarget()
         });
+        const source = new mb.CanvasSource(offscreen, { codec: "avc", bitrate });
+        output.addVideoTrack(source, { frameRate: fps });
+        await output.start();
 
-        encoder = new VideoEncoder({
-          output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-          error: (err) => { encodeError = err; }
-        });
-        encoder.configure(supportedConfig);
-
-        for (let n = 0; n < totalFrames; n++) {
-          if (this.mp4Cancelled || encodeError) break;
-
-          const t = n / FPS;
-          RenderEngine.renderFrame(oCtx, encW, encH, t, {
-            animate: true,
-            showOverlays: false,
-            transparentBg: false
-          });
-
-          const frame = new VideoFrame(offscreen, {
-            timestamp: Math.round((n * 1_000_000) / FPS),
-            duration: frameDurationUs
-          });
-          encoder.encode(frame, { keyFrame: n % FPS === 0 });
-          frame.close();
-
-          const pct = Math.round(((n + 1) / totalFrames) * 100);
+        // e. Cuadros: t = i / fps (el último es (N-1)/fps, no repite el primero)
+        for (let i = 0; i < totalFrames; i++) {
+          if (this.mp4Cancelled) break;
+          drawAnimationFrame(oCtx, i / fps, { mask });
+          await source.add(i / fps, 1 / fps);
+          const pct = Math.round(((i + 1) / totalFrames) * 100);
           if (progBar) progBar.value = pct;
-          if (progText) progText.textContent = `${n + 1} / ${totalFrames} cuadros (${pct}%)`;
-
-          while (encoder.encodeQueueSize > 8 && !this.mp4Cancelled && !encodeError) {
-            await new Promise(r => setTimeout(r, 8));
-          }
-          await new Promise(r => setTimeout(r, 0));
+          if (progText) progText.textContent = `Cuadro ${i + 1} de ${totalFrames}`;
+          if (i % 4 === 3) await new Promise(r => setTimeout(r));
         }
 
-        if (encodeError) throw encodeError;
-
         if (this.mp4Cancelled) {
-          if (encoder.state !== "closed") encoder.close();
-          if (statusEl) {
-            statusEl.textContent = "Exportación MP4 cancelada.";
-            statusEl.classList.remove("hidden");
-          }
+          await output.cancel();
+          setStatus("Exportación MP4 cancelada.");
           return;
         }
 
-        await encoder.flush();
-        encoder.close();
-        muxer.finalize();
-
-        const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
+        // f. Finalizar y descargar
+        await output.finalize();
+        const blob = new Blob([output.target.buffer], { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        const safeName = (this.projectName || "led-grid-mapper").replace(/[^A-Za-z0-9_\-]+/g, "-").replace(/^-+|-+$/g, "") || "led-grid-mapper";
         a.href = url;
-        a.download = `${safeName}.mp4`;
+        a.download = `animacion_${encW}x${encH}_${fps}fps.mp4`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        setStatus(`Listo · ${(blob.size / (1024 * 1024)).toFixed(2)} MB`);
       } catch (err) {
-        if (encoder && encoder.state !== "closed") {
-          try { encoder.close(); } catch (_) { }
-        }
+        if (output) { try { await output.cancel(); } catch (_) { } }
         showError(`No se pudo exportar el MP4 (${encW} × ${encH} px): ${err && err.message ? err.message : err}`);
       } finally {
         this.mp4Exporting = false;
-        if (btnMp4) btnMp4.disabled = false;
+        locked.forEach(el => { el.disabled = false; });
         if (progBox) progBox.classList.add("hidden");
+        UIController.syncAnimationPlaybackUI();
+        if (wasPlaying) AnimationEngine.play(); else RenderEngine.render();
       }
     },
 

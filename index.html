@@ -130,6 +130,44 @@
         <span class="toolbar-unit">px</span>
       </div>
 
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-section autopack-wrap">
+        <button id="btn-autopack-toggle" class="btn btn-tool" title="Acomodar las pantallas visibles de la forma más eficiente">Auto-distribuir</button>
+        <div id="autopack-panel" class="autopack-panel hidden">
+          <div class="autopack-row">
+            <span class="toolbar-label">Lienzo máximo:</span>
+            <input type="number" id="autopack-max-w" class="form-input-sm autopack-input" value="3840" min="100" max="16384" step="1">
+            <span class="toolbar-unit">×</span>
+            <input type="number" id="autopack-max-h" class="form-input-sm autopack-input" value="2160" min="100" max="16384" step="1">
+            <span class="toolbar-unit">px</span>
+          </div>
+          <div class="autopack-row">
+            <button class="btn btn-tool autopack-preset" data-w="1920" data-h="1080">1920×1080</button>
+            <button class="btn btn-tool autopack-preset" data-w="3840" data-h="2160">3840×2160</button>
+            <button class="btn btn-tool autopack-preset" data-w="4096" data-h="2160">4096×2160</button>
+          </div>
+          <div class="autopack-row">
+            <label class="toolbar-label" for="autopack-gap">Separación:</label>
+            <input type="number" id="autopack-gap" class="form-input-sm autopack-input" value="0" min="0" step="1">
+            <span class="toolbar-unit">px</span>
+          </div>
+          <div class="autopack-row">
+            <label class="toolbar-label" for="autopack-snap">Alinear a múltiplos de:</label>
+            <select id="autopack-snap" class="form-select-sm">
+              <option value="1" selected>1 px</option>
+              <option value="8">8 px</option>
+              <option value="16">16 px</option>
+              <option value="64">64 px</option>
+            </select>
+          </div>
+          <div class="autopack-row">
+            <button id="btn-autopack-run" class="btn btn-primary btn-sm">Distribuir</button>
+          </div>
+          <div id="autopack-result" class="autopack-result"></div>
+        </div>
+      </div>
+
       <div class="toolbar-hint" id="selection-status-hint">
         <span>0 seleccionadas</span>
       </div>
@@ -590,7 +628,25 @@
           </div>
 
           <div class="editor-card">
-            <div class="editor-card-title"><span>Exportar MP4 (H.264 · 30 fps)</span></div>
+            <div class="editor-card-title"><span>Exportar MP4 (H.264)</span></div>
+            <div class="form-grid-2" style="align-items:end; margin-bottom:8px;">
+              <div class="form-group" style="margin:0;">
+                <label for="anim-mp4-fps">FPS</label>
+                <select id="anim-mp4-fps" class="form-select">
+                  <option value="24">24</option>
+                  <option value="25">25</option>
+                  <option value="30" selected>30</option>
+                  <option value="60">60</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label for="anim-mp4-bg">Fondo</label>
+                <select id="anim-mp4-bg" class="form-select">
+                  <option value="screens">Con pantallas</option>
+                  <option value="mask">Negro (máscara)</option>
+                </select>
+              </div>
+            </div>
             <div class="form-grid-2" style="align-items:end;">
               <div class="form-group" style="margin:0;">
                 <label for="anim-mp4-quality">Calidad</label>
@@ -663,8 +719,8 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/svg2pdf.js@2.2.4/dist/svg2pdf.umd.min.js"></script>
-  <script src="libs/mp4-muxer.js"></script>
   <script src="default-project.js"></script>
+  <script src="packer.js"></script>
   <script src="app.js"></script>
 </body>
 
