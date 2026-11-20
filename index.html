@@ -356,6 +356,7 @@
                 <option value="bw">Grilla</option>
                 <option value="gradient">Degradado</option>
                 <option value="testcard">Test card</option>
+                <option value="mask">Máscaras</option>
               </select>
             </div>
             <div id="opt-grid-options" class="hidden">
@@ -564,6 +565,7 @@
                   <option value="sequence_all">Secuencia y luego todas</option>
                   <option value="strobe">Strobe</option>
                   <option value="sequence_strobe">Secuencia + strobe</option>
+                  <option value="random_sequence">Secuencia aleatoria</option>
                 </select>
               </div>
               <div class="form-group">
@@ -597,6 +599,33 @@
                 <label for="anim-all-duration"><span>Todas juntas</span><span class="label-unit">s</span></label>
                 <input type="number" id="anim-all-duration" class="form-input" min="0" max="60" step="0.1" value="1.5">
               </div>
+            </div>
+
+            <div id="anim-rand-params" class="hidden">
+              <div class="form-grid-2" style="align-items:end;">
+                <div class="form-group">
+                  <label for="anim-rand-seed">Semilla</label>
+                  <input type="number" id="anim-rand-seed" class="form-input" min="0" step="1" value="1">
+                </div>
+                <div class="form-group">
+                  <button type="button" id="btn-rand-reshuffle" class="btn btn-secondary btn-block">Mezclar de nuevo</button>
+                </div>
+              </div>
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="anim-rand-mode">Modo</label>
+                  <select id="anim-rand-mode" class="form-select">
+                    <option value="one">Una por vez</option>
+                    <option value="cumulative">Acumulativo</option>
+                    <option value="blink">Parpadeo aleatorio</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="anim-rand-on-time"><span>Encendido</span><span class="label-unit">s (0=auto)</span></label>
+                  <input type="number" id="anim-rand-on-time" class="form-input" min="0" max="120" step="0.1" value="0">
+                </div>
+              </div>
+              <label class="checkbox-label"><input type="checkbox" id="anim-rand-strobe"> Strobe mientras está encendida</label>
             </div>
 
             <div id="anim-strobe-params" class="hidden">

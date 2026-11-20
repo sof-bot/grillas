@@ -552,14 +552,18 @@
         strobeTarget: "all",
         strobeFreq: 4,
         strobeIntensity: 100,
-        strobeDuty: 50
+        strobeDuty: 50,
+        randSeed: 1,
+        randMode: "one",
+        randOnTime: 0,
+        randStrobe: false
       };
       const a = (state.settings && state.settings.animation) || {};
       const clamp = (v, d, min, max) => {
         const n = Number(v);
         return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d;
       };
-      const effect = ["sequence", "sequence_all", "strobe", "sequence_strobe"].includes(a.effect)
+      const effect = ["sequence", "sequence_all", "strobe", "sequence_strobe", "random_sequence"].includes(a.effect)
         ? a.effect : def.effect;
       return {
         effect,
@@ -571,8 +575,73 @@
         strobeTarget: a.strobeTarget === "selected" ? "selected" : "all",
         strobeFreq: clamp(a.strobeFreq, def.strobeFreq, 0.5, 15),
         strobeIntensity: clamp(a.strobeIntensity, def.strobeIntensity, 0, 100),
-        strobeDuty: clamp(a.strobeDuty, def.strobeDuty, 10, 90)
+        strobeDuty: clamp(a.strobeDuty, def.strobeDuty, 10, 90),
+        randSeed: Math.floor(clamp(a.randSeed, def.randSeed, 0, 4294967295)),
+        randMode: ["one", "cumulative", "blink"].includes(a.randMode) ? a.randMode : def.randMode,
+        randOnTime: clamp(a.randOnTime, def.randOnTime, 0, 120),
+        randStrobe: a.randStrobe === true
       };
+    },
+
+    mulberry32(seed) {
+      let s = seed >>> 0;
+      return () => {
+        s = (s + 0x6D2B79F5) >>> 0;
+        let t = s;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    },
+
+    /** Orden aleatorio determinístico (Fisher-Yates + mulberry32): arr[turno] = posición de pantalla. */
+    getShuffledOrder(n, seed) {
+      const key = `${seed}|${n}`;
+      if (this._orderKey === key && this._orderVal) return this._orderVal;
+      const rnd = this.mulberry32(seed);
+      const arr = Array.from({ length: n }, (_, i) => i);
+      for (let i = n - 1; i > 0; i--) {
+        const j = Math.floor(rnd() * (i + 1));
+        const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+      }
+      this._orderKey = key;
+      this._orderVal = arr;
+      return arr;
+    },
+
+    /** Efecto "Secuencia aleatoria": intensidad 0..1 de la posición pos (entre n activas) en el tiempo cuantizado qt. */
+    getRandomIntensity(a, pos, n, qt) {
+      const D = a.loopDuration;
+      const slot = D / n;
+      const onT = Math.min(D, a.randOnTime > 0 ? a.randOnTime : slot);
+      const order = this.getShuffledOrder(n, a.randSeed);
+      const rank = order.indexOf(pos);
+      let start;
+      let len = onT;
+      let u;
+      if (a.randMode === "blink") {
+        const rnd = this.mulberry32((a.randSeed ^ 0x9E3779B9) >>> 0);
+        let r = 0;
+        for (let i = 0; i <= pos; i++) r = rnd();
+        start = r * D;
+        u = (((qt - start) % D) + D) % D; // envuelve el loop: siempre corta limpio
+      } else {
+        start = rank * slot;
+        len = a.randMode === "cumulative" ? D - start : Math.min(onT, D - start);
+        u = qt - start;
+      }
+      if (u < 0 || u >= len) return 0;
+      const f = Math.min(a.seqFade, len / 2);
+      let env = 1;
+      if (f > 0) {
+        if (u < f) env = u / f;
+        else if (u > len - f) env = (len - u) / f;
+      }
+      if (a.randStrobe) {
+        const phase = (u * a.strobeFreq) % 1;
+        if (phase >= a.strobeDuty / 100) return 0;
+      }
+      return env * (a.strobeIntensity / 100);
     },
 
     getOrderedActiveScreens() {
@@ -626,6 +695,8 @@
       const fade = a.seqFade;
       const hasFade = fade > 0;
       const stepEndGap = Math.min(0.25, D * 0.1);
+
+      if (a.effect === "random_sequence") return this.getRandomIntensity(a, pos, n, qt);
 
       if (a.effect === "sequence") {
         let onS = pos * delay;
@@ -821,7 +892,8 @@
     renderFrame(ctx, w, h, t, options = {}) {
       const animate = options.animate !== undefined ? options.animate : true;
       const showOverlays = !!options.showOverlays;
-      const allowTransparent = options.transparentBg !== undefined ? options.transparentBg : true;
+      const maskMode = !!options.mask || state.settings.displayMode === "mask";
+      const allowTransparent = !maskMode && (options.transparentBg !== undefined ? options.transparentBg : true);
 
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, w, h);
@@ -833,14 +905,14 @@
         ctx.fillRect(0, 0, w, h);
       }
 
-      if (showOverlays) {
+      if (showOverlays && !maskMode) {
         ctx.strokeStyle = "#333333";
         ctx.lineWidth = 1;
         ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
       }
 
       // Modo máscara: solo la animación (blanco x intensidad) sobre negro, sin damero, etiquetas ni capas
-      if (options.mask) {
+      if (maskMode) {
         state.screens.forEach((screen, idx) => {
           if (screen.visible === false) return;
           const v = Math.round(255 * Math.max(0, Math.min(1, animate ? getScreenIntensity(idx, t) : 1)));
@@ -890,7 +962,7 @@
 
       // 4. Manijas de transformación para la capa seleccionada
       const activeLayer = state.layers.find(l => l.id === state.selectedLayerId);
-      if (activeLayer && activeLayer.visible && !activeLayer.locked) {
+      if (activeLayer && activeLayer.visible && !activeLayer.locked && state.settings.displayMode !== "mask") {
         this.renderLayerTransformControls(ctx, activeLayer);
       }
 
@@ -1860,7 +1932,7 @@
 
       // 1. Probar manijas de transformación en la capa activa
       const activeLayer = state.layers.find(l => l.id === state.selectedLayerId);
-      if (activeLayer && activeLayer.visible && !activeLayer.locked) {
+      if (activeLayer && activeLayer.visible && !activeLayer.locked && state.settings.displayMode !== "mask") {
         const handle = this.getLayerHandleAt(pos.x, pos.y, activeLayer);
         if (handle) {
           state.interaction.layerAction = handle;
@@ -3842,11 +3914,19 @@
       document.getElementById("anim-strobe-freq").value = a.strobeFreq;
       document.getElementById("anim-strobe-intensity").value = a.strobeIntensity;
       document.getElementById("anim-strobe-duty").value = a.strobeDuty;
+      document.getElementById("anim-rand-seed").value = a.randSeed;
+      document.getElementById("anim-rand-mode").value = a.randMode;
+      document.getElementById("anim-rand-on-time").value = a.randOnTime;
+      document.getElementById("anim-rand-strobe").checked = a.randStrobe;
+      const isRand = a.effect === "random_sequence";
+      document.getElementById("anim-rand-params").classList.toggle("hidden", !isRand);
+      const delayGroup = document.getElementById("anim-seq-delay").closest(".form-group");
+      if (delayGroup) delayGroup.classList.toggle("hidden", isRand);
 
       document.getElementById("anim-seq-params").classList.toggle("hidden", a.effect === "strobe");
       document.getElementById("anim-seq-off-group").classList.toggle("hidden", a.effect !== "sequence");
       document.getElementById("anim-all-params").classList.toggle("hidden", a.effect !== "sequence_all");
-      document.getElementById("anim-strobe-params").classList.toggle("hidden", a.effect !== "strobe" && a.effect !== "sequence_strobe");
+      document.getElementById("anim-strobe-params").classList.toggle("hidden", a.effect !== "strobe" && a.effect !== "sequence_strobe" && !isRand);
       document.getElementById("anim-strobe-target-group").classList.toggle("hidden", a.effect !== "strobe");
 
       const realEl = document.getElementById("anim-strobe-real-freq");
@@ -3887,6 +3967,23 @@
       document.getElementById("anim-effect").addEventListener("change", (e) => setAnim("effect", e.target.value, true));
       document.getElementById("anim-seq-off-mode").addEventListener("change", (e) => setAnim("seqOffMode", e.target.value, false));
       document.getElementById("anim-strobe-target").addEventListener("change", (e) => setAnim("strobeTarget", e.target.value, false));
+      document.getElementById("anim-rand-mode").addEventListener("change", (e) => setAnim("randMode", e.target.value, false));
+      document.getElementById("anim-rand-strobe").addEventListener("change", (e) => setAnim("randStrobe", e.target.checked, false));
+      document.getElementById("anim-rand-seed").addEventListener("input", (e) => {
+        const v = parseInt(e.target.value, 10);
+        if (isNaN(v)) return;
+        setAnim("randSeed", Math.max(0, Math.min(4294967295, v)), false);
+      });
+      document.getElementById("anim-rand-on-time").addEventListener("input", (e) => {
+        const v = parseFloat(e.target.value);
+        if (isNaN(v)) return;
+        setAnim("randOnTime", Math.max(0, Math.min(120, v)), false);
+      });
+      document.getElementById("btn-rand-reshuffle").addEventListener("click", () => {
+        const seed = Math.floor(Math.random() * 1_000_000_000);
+        document.getElementById("anim-rand-seed").value = seed;
+        setAnim("randSeed", seed, false);
+      });
       [
         ["anim-loop-duration", "loopDuration", 0.5, 120],
         ["anim-seq-delay", "seqDelay", 0, 30],
@@ -5210,25 +5307,30 @@
       const oCtx = offscreen.getContext("2d", { alpha: true });
       oCtx.imageSmoothingEnabled = false;
 
-      if (state.settings.canvasBg === "transparent") {
-        oCtx.clearRect(0, 0, w, h);
+      if (state.settings.displayMode === "mask") {
+        // Máscara: blanco sobre negro, solo pantallas
+        RenderEngine.renderFrame(oCtx, w, h, 0, { animate: false, showOverlays: false, transparentBg: false, mask: true });
       } else {
-        oCtx.fillStyle = "#000000";
-        oCtx.fillRect(0, 0, w, h);
-      }
-
-      // 1. Dibujar pantallas
-      state.screens.forEach(screen => {
-        if (screen.visible === false) return;
-        RenderEngine.renderScreen(oCtx, screen, false, false);
-      });
-
-      // 2. Dibujar capas gráficas
-      state.layers.forEach(layer => {
-        if (layer.visible) {
-          RenderEngine.renderLayer(oCtx, layer, false);
+        if (state.settings.canvasBg === "transparent") {
+          oCtx.clearRect(0, 0, w, h);
+        } else {
+          oCtx.fillStyle = "#000000";
+          oCtx.fillRect(0, 0, w, h);
         }
-      });
+
+        // 1. Dibujar pantallas
+        state.screens.forEach(screen => {
+          if (screen.visible === false) return;
+          RenderEngine.renderScreen(oCtx, screen, false, false);
+        });
+
+        // 2. Dibujar capas gráficas
+        state.layers.forEach(layer => {
+          if (layer.visible) {
+            RenderEngine.renderLayer(oCtx, layer, false);
+          }
+        });
+      }
 
       offscreen.toBlob((blob) => {
         if (!blob) return;
@@ -5271,6 +5373,20 @@
       // Fondo
       if (state.settings.canvasBg !== "transparent") {
         out.push(`  <rect id="${uniqueId("Fondo", "Fondo")}" x="0" y="0" width="${w}" height="${h}" fill="#000000"/>`);
+      }
+
+      // Modo máscaras: solo rectángulos blancos sobre negro (SVG y PDF)
+      if (state.settings.displayMode === "mask") {
+        out.length = 0;
+        out.push(`  <rect id="${uniqueId("Fondo", "Fondo")}" x="0" y="0" width="${w}" height="${h}" fill="#000000"/>`);
+        state.screens.forEach((screen, idx) => {
+          if (screen.visible === false) return;
+          out.push(`  <rect id="${uniqueId(screen.label, `Pantalla_${idx + 1}`)}" x="${Math.round(screen.x)}" y="${Math.round(screen.y)}" width="${Math.round(screen.widthPx)}" height="${Math.round(screen.heightPx)}" fill="#FFFFFF" shape-rendering="crispEdges"/>`);
+        });
+        const svgMask = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n` +
+          out.join("\n") + `\n</svg>\n`;
+        return { svg: svgMask, w, h };
       }
 
       // Pantallas
