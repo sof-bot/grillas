@@ -556,17 +556,39 @@
         randSeed: 1,
         randMode: "one",
         randOnTime: 0,
-        randStrobe: false
+        randStrobe: false,
+        csOrder: "rows",
+        csMode: "one",
+        csTrail: 5,
+        csTimeMode: "loop",
+        csCps: 10,
+        csPerStep: 1,
+        csFade: 0,
+        csScope: "simultaneous",
+        csOnlySelected: false,
+        csInvert: false,
+        csSeed: 1
       };
       const a = (state.settings && state.settings.animation) || {};
       const clamp = (v, d, min, max) => {
         const n = Number(v);
         return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d;
       };
-      const effect = ["sequence", "sequence_all", "strobe", "sequence_strobe", "random_sequence"].includes(a.effect)
+      const effect = ["sequence", "sequence_all", "strobe", "sequence_strobe", "random_sequence", "cell_sequence"].includes(a.effect)
         ? a.effect : def.effect;
       return {
         effect,
+        csOrder: ["rows", "rows_rev", "columns", "snake", "random"].includes(a.csOrder) ? a.csOrder : def.csOrder,
+        csMode: ["one", "cumulative", "trail"].includes(a.csMode) ? a.csMode : def.csMode,
+        csTrail: Math.round(clamp(a.csTrail, def.csTrail, 1, 50)),
+        csTimeMode: a.csTimeMode === "cps" ? "cps" : "loop",
+        csCps: clamp(a.csCps, def.csCps, 0.01, 1000000),
+        csPerStep: Math.round(clamp(a.csPerStep, def.csPerStep, 1, 1000000)),
+        csFade: clamp(a.csFade, def.csFade, 0, 30),
+        csScope: a.csScope === "sequential" ? "sequential" : "simultaneous",
+        csOnlySelected: a.csOnlySelected === true,
+        csInvert: a.csInvert === true,
+        csSeed: Math.floor(clamp(a.csSeed, def.csSeed, 0, 4294967295)),
         loopDuration: clamp(a.loopDuration, def.loopDuration, 0.5, 120),
         seqDelay: clamp(a.seqDelay, def.seqDelay, 0, 30),
         seqFade: clamp(a.seqFade, def.seqFade, 0, 30),
@@ -644,6 +666,77 @@
       return env * (a.strobeIntensity / 100);
     },
 
+    /** Permutación determinista (Fisher-Yates + mulberry32) de 0..n-1 para "Secuencia de celdas" (cacheada). */
+    getCellPermutation(n, seed) {
+      if (this._permSeed !== seed || !this._permCache) { this._permSeed = seed; this._permCache = new Map(); }
+      let arr = this._permCache.get(n);
+      if (arr) return arr;
+      if (this._permCache.size >= 6) this._permCache.clear();
+      arr = new Int32Array(n);
+      for (let i = 0; i < n; i++) arr[i] = i;
+      const rnd = this.mulberry32(seed);
+      for (let i = n - 1; i > 0; i--) {
+        const j = Math.floor(rnd() * (i + 1));
+        const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+      }
+      this._permCache.set(n, arr);
+      return arr;
+    },
+
+    /**
+     * Plan de "Secuencia de celdas": pantallas participantes (con las mismas celdas que dibuja el render),
+     * pasos, tiempos y duración total del loop.
+     */
+    getCellSeqPlan(a) {
+      a = a || this.getSettings();
+      const items = [];
+      this.getOrderedActiveScreens().forEach(({ s }) => {
+        if (a.csOnlySelected && !state.selectedScreenIds.includes(s.id)) return;
+        const g = RenderEngine.getScreenCellGrid(s);
+        const n = g.cols * g.rows;
+        const S = Math.min(a.csPerStep, n);
+        const m = Math.ceil(n / S);
+        items.push({ screen: s, cols: g.cols, rows: g.rows, n, S, m, stepDur: 0, t0: 0, dur: 0, cyclic: false });
+      });
+      const sequential = a.csScope === "sequential";
+      let total;
+      if (a.csTimeMode === "cps") {
+        let acc = 0;
+        let mx = 0;
+        items.forEach(it => {
+          it.stepDur = it.S / a.csCps;
+          it.dur = it.m * it.stepDur;
+          if (sequential) { it.t0 = acc; acc += it.dur; }
+          mx = Math.max(mx, it.dur);
+        });
+        total = sequential ? acc : mx;
+      } else {
+        const D = a.loopDuration;
+        total = D;
+        const sumM = items.reduce((q, it) => q + it.m, 0) || 1;
+        let acc = 0;
+        items.forEach(it => {
+          if (sequential) {
+            it.stepDur = D / sumM;
+            it.t0 = acc; acc += it.m * it.stepDur;
+          } else {
+            it.stepDur = D / it.m;
+          }
+          it.dur = it.m * it.stepDur;
+        });
+      }
+      total = Math.max(0.1, total || 0.1);
+      items.forEach(it => { it.cyclic = !sequential && it.dur >= total - 1e-9; });
+      return { items, total, sequential };
+    },
+
+    /** Duración efectiva del loop (en "Secuencia de celdas" con velocidad fija depende de la cantidad de celdas). */
+    getLoopDuration() {
+      const a = this.getSettings();
+      if (a.effect === "cell_sequence" && a.csTimeMode === "cps") return this.getCellSeqPlan(a).total;
+      return a.loopDuration;
+    },
+
     getOrderedActiveScreens() {
       return state.screens
         .map((s, idx) => ({ s, idx, order: Math.max(1, Math.round(Number(s.animOrder) || (idx + 1))) }))
@@ -673,6 +766,7 @@
       if (screen.animIncluded === false) return 1;
 
       const a = this.getSettings();
+      if (a.effect === "cell_sequence") return 1; // lo dibuja RenderEngine.renderCellSequence
       const D = a.loopDuration;
       const totalFrames = Math.max(2, Math.round(D * this.FPS));
       const frame = ((Math.floor((Number(t) || 0) * this.FPS + 1e-9) % totalFrames) + totalFrames) % totalFrames;
@@ -801,7 +895,7 @@
     },
 
     seek(t) {
-      const D = this.getSettings().loopDuration;
+      const D = this.getLoopDuration();
       const num = Math.max(0, Math.min(D, Number(t) || 0));
       this.currentTime = num >= D ? 0 : num;
       if (this.status === "stopped") this.status = "paused";
@@ -814,7 +908,7 @@
       if (this.status !== "playing") return;
       const dt = Math.min(0.25, Math.max(0, (now - this.lastTimestamp) / 1000));
       this.lastTimestamp = now;
-      const D = this.getSettings().loopDuration;
+      const D = this.getLoopDuration();
       this.currentTime = (this.currentTime + dt) % D;
       const frame = Math.floor(this.currentTime * this.FPS + 1e-9);
       if (frame !== this.lastRenderedFrame) {
@@ -909,6 +1003,18 @@
         ctx.strokeStyle = "#333333";
         ctx.lineWidth = 1;
         ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+      }
+
+      // Efecto "Secuencia de celdas": solo se dibujan las celdas encendidas (resto negro)
+      if (animate && AnimationEngine.getSettings().effect === "cell_sequence") {
+        this.renderCellSequence(ctx, t, maskMode, showOverlays);
+        if (!maskMode) {
+          state.layers.forEach(layer => {
+            if (!layer.visible) return;
+            this.renderLayer(ctx, layer, showOverlays && layer.id === state.selectedLayerId);
+          });
+        }
+        return;
       }
 
       // Modo máscara: solo la animación (blanco x intensidad) sobre negro, sin damero, etiquetas ni capas
@@ -1294,6 +1400,138 @@
       }
 
       ctx.restore();
+    },
+
+    /** Índice de celda (r*cols+c) del turno k según el orden elegido. Sin reservar memoria. */
+    cellSeqIndexAt(order, k, n, cols, rows, perm) {
+      switch (order) {
+        case "rows_rev": { const q = n - 1 - k; return q; }
+        case "columns": { const c = Math.floor(k / rows); const r = k - c * rows; return r * cols + c; }
+        case "snake": {
+          const r = Math.floor(k / cols); const c = k - r * cols;
+          return r * cols + ((r & 1) ? cols - 1 - c : c);
+        }
+        case "random": return perm[k];
+        default: return k;
+      }
+    },
+
+    /** Dibuja las celdas de los turnos [k0, k1) con alpha. flat = color fijo; si no, color de damero (2 pasadas por paridad). */
+    drawCellSeqRange(ctx, it, order, perm, k0, k1, alpha, flat) {
+      if (k1 <= k0 || alpha <= 0) return;
+      const { n, cols, rows, x, y, colStep, rowStep } = it;
+      ctx.globalAlpha = alpha > 1 ? 1 : alpha;
+      const passes = flat ? 1 : 2;
+      for (let pass = 0; pass < passes; pass++) {
+        ctx.fillStyle = flat || (pass === 0 ? it.color1 : it.color2);
+        for (let k = k0; k < k1; k++) {
+          const v = this.cellSeqIndexAt(order, k, n, cols, rows, perm);
+          const r = Math.floor(v / cols);
+          const c = v - r * cols;
+          if (!flat && ((r + c) & 1) !== pass) continue;
+          const cx = Math.round(x + c * colStep);
+          const cy = Math.round(y + r * rowStep);
+          ctx.fillRect(cx, cy, Math.round(x + (c + 1) * colStep) - cx, Math.round(y + (r + 1) * rowStep) - cy);
+        }
+      }
+      ctx.globalAlpha = 1;
+    },
+
+    /**
+     * "Secuencia de celdas": determinista en t (sin Math.random). Usa getScreenCellGrid (mismas celdas y
+     * mismo redondeo que renderScreen). Recorta al borde de cada pantalla; no toca las ocultas.
+     */
+    renderCellSequence(ctx, t, maskMode, showOverlays) {
+      const a = AnimationEngine.getSettings();
+      const plan = AnimationEngine.getCellSeqPlan(a);
+      const total = plan.total;
+      const tt = (((Number(t) || 0) % total) + total) % total;
+      const inPlan = new Set();
+      plan.items.forEach(it => inPlan.add(it.screen));
+
+      // Pantallas excluidas de la animación (animIncluded = false): se dibujan completas como siempre
+      state.screens.forEach(screen => {
+        if (screen.visible === false || inPlan.has(screen) || screen.animIncluded !== false) return;
+        if (maskMode) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(Math.round(screen.x), Math.round(screen.y), Math.round(screen.widthPx), Math.round(screen.heightPx));
+        } else {
+          this.renderScreen(ctx, screen, showOverlays && state.selectedScreenIds.includes(screen.id), showOverlays && screen.id === state.selectedScreenId, 1);
+        }
+      });
+
+      const mode = a.csMode;
+      const N = a.csTrail;
+      const fadeSec = a.csFade;
+      plan.items.forEach(it => {
+        const screen = it.screen;
+        it.x = screen.x; it.y = screen.y;
+        it.colStep = screen.widthPx / it.cols;
+        it.rowStep = screen.heightPx / it.rows;
+        it.color1 = screen.color1; it.color2 = screen.color2;
+        const flat = maskMode ? "#ffffff" : null;
+        const perm = a.csOrder === "random" ? AnimationEngine.getCellPermutation(it.n, a.csSeed) : null;
+        const order = a.csOrder;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(screen.x, screen.y, screen.widthPx, screen.heightPx);
+        ctx.clip();
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(screen.x, screen.y, screen.widthPx, screen.heightPx);
+
+        // Todo encendido (invertido) como base
+        if (a.csInvert) {
+          if (maskMode) { ctx.fillStyle = "#ffffff"; ctx.fillRect(screen.x, screen.y, screen.widthPx, screen.heightPx); }
+          else this.drawCellSeqRange(ctx, it, order, perm, 0, it.n, 1, null);
+        }
+        // Celdas activas: en invertido se oscurecen (negro con alpha), si no se encienden
+        const paintFlat = a.csInvert ? "#000000" : flat;
+        const paint = (k0, k1, alpha) => {
+          this.drawCellSeqRange(ctx, it, order, perm, k0, k1, alpha, paintFlat);
+        };
+
+        const u = tt - it.t0 + 1e-9;
+        if (u >= 0) {
+          const p = u / it.stepDur;
+          const s = Math.floor(p);
+          const frac = p - s;
+          const f = Math.min(fadeSec, it.stepDur);
+          const phi = f > 0 ? Math.min(1, frac * it.stepDur / f) : 1;
+          const stepRange = (j, alpha) => {
+            if (j < 0 || j >= it.m) return;
+            paint(j * it.S, Math.min(it.n, (j + 1) * it.S), alpha);
+          };
+          if (mode === "cumulative") {
+            paint(0, Math.min(it.n, Math.min(s, it.m) * it.S), 1);
+            stepRange(s, phi);
+          } else {
+            const level = mode === "trail"
+              ? (k => (k < 0 || k > N) ? 0 : (N + 1 - k) / (N + 1))
+              : (k => (k === 0 ? 1 : 0));
+            const K = Math.min(mode === "trail" ? N + 1 : 1, Math.max(0, it.m - 1));
+            for (let k = 0; k <= K; k++) {
+              const prev = level(k - 1);
+              const I = prev + (level(k) - prev) * phi;
+              if (I <= 0) continue;
+              let j = s - k;
+              if (it.cyclic) j = ((j % it.m) + it.m) % it.m;
+              stepRange(j, I);
+            }
+          }
+        }
+        ctx.restore();
+
+        if (showOverlays) {
+          const sel = state.selectedScreenIds.includes(screen.id);
+          if (sel) {
+            const prim = screen.id === state.selectedScreenId;
+            ctx.strokeStyle = prim ? "#ffffff" : "#cccccc";
+            ctx.lineWidth = prim ? 1.5 : 1;
+            ctx.strokeRect(screen.x + 0.5, screen.y + 0.5, screen.widthPx - 1, screen.heightPx - 1);
+          }
+        }
+      });
     },
 
     renderScreen(ctx, screen, isSelected, isPrimary, intensity = 1) {
@@ -3880,7 +4118,7 @@
 
     /** Sincroniza la barra de reproducción y tiempo de la animación. */
     syncAnimationPlaybackUI() {
-      const dur = AnimationEngine.getSettings().loopDuration;
+      const dur = AnimationEngine.getLoopDuration();
       const t = Math.min(dur, AnimationEngine.currentTime);
       const scrubber = document.getElementById("anim-scrubber");
       const disp = document.getElementById("anim-time-display");
@@ -3923,7 +4161,8 @@
       const delayGroup = document.getElementById("anim-seq-delay").closest(".form-group");
       if (delayGroup) delayGroup.classList.toggle("hidden", isRand);
 
-      document.getElementById("anim-seq-params").classList.toggle("hidden", a.effect === "strobe");
+      document.getElementById("anim-seq-params").classList.toggle("hidden", a.effect === "strobe" || a.effect === "cell_sequence");
+      this.updateCellSeqControls(a);
       document.getElementById("anim-seq-off-group").classList.toggle("hidden", a.effect !== "sequence");
       document.getElementById("anim-all-params").classList.toggle("hidden", a.effect !== "sequence_all");
       document.getElementById("anim-strobe-params").classList.toggle("hidden", a.effect !== "strobe" && a.effect !== "sequence_strobe" && !isRand);
@@ -3936,6 +4175,42 @@
         realEl.textContent = `Frecuencia real: ${meta.realFreq.toFixed(2)} Hz (${meta.cycles} ciclos)`;
       }
       this.syncAnimationPlaybackUI();
+    },
+
+    /** Controles de "Secuencia de celdas": valores y visibilidad (solo con ese efecto elegido). */
+    updateCellSeqControls(a) {
+      const el = (id) => document.getElementById(id);
+      if (!el("anim-cs-params")) return;
+      const isCs = a.effect === "cell_sequence";
+      el("anim-cs-params").classList.toggle("hidden", !isCs);
+      // La duración del loop solo aplica si el tiempo se reparte en el loop
+      const loopGroup = el("anim-loop-duration").closest(".form-group");
+      if (loopGroup) loopGroup.classList.toggle("hidden", isCs && a.csTimeMode === "cps");
+      el("anim-cs-order").value = a.csOrder;
+      el("anim-cs-mode").value = a.csMode;
+      el("anim-cs-seed").value = a.csSeed;
+      el("anim-cs-trail").value = a.csTrail;
+      el("anim-cs-time-mode").value = a.csTimeMode;
+      el("anim-cs-cps").value = a.csCps;
+      el("anim-cs-per-step").value = a.csPerStep;
+      el("anim-cs-fade").value = a.csFade;
+      el("anim-cs-scope").value = a.csScope;
+      el("anim-cs-only-selected").checked = a.csOnlySelected;
+      el("anim-cs-invert").checked = a.csInvert;
+      el("anim-cs-random-group").classList.toggle("hidden", a.csOrder !== "random");
+      el("anim-cs-trail-group").classList.toggle("hidden", a.csMode !== "trail");
+      el("anim-cs-cps-group").classList.toggle("hidden", a.csTimeMode !== "cps");
+      if (isCs) this.updateCellSeqInfo(a);
+    },
+
+    updateCellSeqInfo(a) {
+      const info = document.getElementById("anim-cs-info");
+      if (!info) return;
+      a = a || AnimationEngine.getSettings();
+      const plan = AnimationEngine.getCellSeqPlan(a);
+      const cells = plan.items.reduce((q, it) => q + it.n, 0);
+      const stepDur = plan.items.length ? plan.items[0].stepDur : 0;
+      info.textContent = `${plan.items.length} pantalla(s), ${cells} celdas, ${stepDur.toFixed(3)} s por paso, loop de ${plan.total.toFixed(2)} s`;
     },
 
     bindAnimationControls() {
@@ -3965,6 +4240,34 @@
       };
 
       document.getElementById("anim-effect").addEventListener("change", (e) => setAnim("effect", e.target.value, true));
+      const csSel = [
+        ["anim-cs-order", "csOrder"], ["anim-cs-mode", "csMode"],
+        ["anim-cs-time-mode", "csTimeMode"], ["anim-cs-scope", "csScope"]
+      ];
+      csSel.forEach(([id, key]) => document.getElementById(id).addEventListener("change", (e) => setAnim(key, e.target.value, true)));
+      ["anim-cs-only-selected:csOnlySelected", "anim-cs-invert:csInvert"].forEach(pair => {
+        const [id, key] = pair.split(":");
+        document.getElementById(id).addEventListener("change", (e) => setAnim(key, e.target.checked, true));
+      });
+      [
+        ["anim-cs-seed", "csSeed", 0, 4294967295],
+        ["anim-cs-trail", "csTrail", 1, 50],
+        ["anim-cs-cps", "csCps", 0.01, 1000000],
+        ["anim-cs-per-step", "csPerStep", 1, 1000000],
+        ["anim-cs-fade", "csFade", 0, 30]
+      ].forEach(([id, key, min, max]) => {
+        document.getElementById(id).addEventListener("input", (e) => {
+          const v = parseFloat(e.target.value);
+          if (isNaN(v)) return;
+          setAnim(key, Math.max(min, Math.min(max, v)), false);
+          this.updateCellSeqInfo();
+        });
+      });
+      document.getElementById("btn-cs-reshuffle").addEventListener("click", () => {
+        const seed = Math.floor(Math.random() * 1_000_000_000);
+        document.getElementById("anim-cs-seed").value = seed;
+        setAnim("csSeed", seed, false);
+      });
       document.getElementById("anim-seq-off-mode").addEventListener("change", (e) => setAnim("seqOffMode", e.target.value, false));
       document.getElementById("anim-strobe-target").addEventListener("change", (e) => setAnim("strobeTarget", e.target.value, false));
       document.getElementById("anim-rand-mode").addEventListener("change", (e) => setAnim("randMode", e.target.value, false));
@@ -5246,7 +5549,7 @@
           ? `Bitrate: ${usedMbps} Mbps.`
           : `Bitrate pedido ${(baseBitrate / 1e6).toFixed(1)} Mbps no aceptado; se usó ${usedMbps} Mbps.`;
 
-        const totalFrames = Math.max(1, Math.round(AnimationEngine.getSettings().loopDuration * fps));
+        const totalFrames = Math.max(1, Math.round(AnimationEngine.getLoopDuration() * fps));
 
         // c. Canvas fuera de pantalla (nuevo)
         offscreen = document.createElement("canvas");
