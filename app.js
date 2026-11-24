@@ -194,6 +194,7 @@
       gradientPhase: 0,
       gradientFlip: false,
       gradientRepeat: "repeat",
+      gradientCurve: "linear",
       showModuleLines: true,
       gridLineWidth: 1,
       gridLineColor: "#ffffff",
@@ -581,13 +582,16 @@
         csOnlySelected: false,
         csInvert: false,
         csSeed: 1,
-        rampPhaseMode: "shift",
-        rampPhaseCycles: 1,
+        rampPhaseMode: "run",
+        rampPhaseSpeed: 0.25,
+        rampPhaseAmt: 50,
         rampPeriodMode: "off",
+        rampPeriodSpeed: 0.2,
         rampPeriodAmt: 50,
         rampRotMode: "off",
-        rampRotAmt: 360,
-        rampSineCycles: 1,
+        rampRotSpeed: 0.1,
+        rampRotAmt: 45,
+        rampLoopClean: true,
         rampScope: "screen"
       };
       const a = (state.settings && state.settings.animation) || {};
@@ -611,13 +615,16 @@
         csOnlySelected: a.csOnlySelected === true,
         csInvert: a.csInvert === true,
         csSeed: Math.floor(clamp(a.csSeed, def.csSeed, 0, 4294967295)),
-        rampPhaseMode: a.rampPhaseMode === "off" ? "off" : "shift",
-        rampPhaseCycles: clamp(a.rampPhaseCycles, def.rampPhaseCycles, -50, 50),
-        rampPeriodMode: a.rampPeriodMode === "sine" ? "sine" : "off",
+        rampPhaseMode: ["off", "run", "bounce"].includes(a.rampPhaseMode) ? a.rampPhaseMode : def.rampPhaseMode,
+        rampPhaseSpeed: clamp(a.rampPhaseSpeed, def.rampPhaseSpeed, -20, 20),
+        rampPhaseAmt: clamp(a.rampPhaseAmt, def.rampPhaseAmt, 0, 1000),
+        rampPeriodMode: ["off", "bounce"].includes(a.rampPeriodMode) ? a.rampPeriodMode : "off",
+        rampPeriodSpeed: clamp(a.rampPeriodSpeed, def.rampPeriodSpeed, -20, 20),
         rampPeriodAmt: clamp(a.rampPeriodAmt, def.rampPeriodAmt, 0, 95),
-        rampRotMode: ["off", "spin", "sine"].includes(a.rampRotMode) ? a.rampRotMode : "off",
-        rampRotAmt: clamp(a.rampRotAmt, def.rampRotAmt, -3600, 3600),
-        rampSineCycles: Math.round(clamp(a.rampSineCycles, def.rampSineCycles, 1, 50)),
+        rampRotMode: ["off", "spin", "bounce"].includes(a.rampRotMode) ? a.rampRotMode : "off",
+        rampRotSpeed: clamp(a.rampRotSpeed, def.rampRotSpeed, -20, 20),
+        rampRotAmt: clamp(a.rampRotAmt, def.rampRotAmt, 0, 3600),
+        rampLoopClean: a.rampLoopClean !== false,
         rampScope: a.rampScope === "canvas" ? "canvas" : "screen",
         loopDuration: clamp(a.loopDuration, def.loopDuration, 0.5, 120),
         holdEnd: clamp(a.holdEnd, def.holdEnd, 0, 30),
@@ -793,25 +800,47 @@
       return a.loopDuration;
     },
 
+    /**
+     * Velocidad en ciclos/s. Con "Loop sin salto" se redondea a una cantidad entera de ciclos en el loop
+     * (así el último cuadro enlaza con el primero); sin eso la animación es continua y puede notarse el corte.
+     */
+    snapRate(a, rate) {
+      if (!a.rampLoopClean || !rate) return rate || 0;
+      const D = Math.max(0.001, a.loopDuration);
+      const n = Math.max(1, Math.round(Math.abs(rate) * D));
+      return Math.sign(rate) * n / D;
+    },
+
     /** Parámetros de la rampa en el instante t: parte de Ajustes → Degradado y anima fase, período y rotación. */
     getRampAnimParams(a, t) {
       a = a || this.getSettings();
       const base = RampEngine.getParams();
       const D = Math.max(0.001, a.loopDuration);
-      const tau = Math.max(0, Math.min(1, (Number(t) || 0) / D)); // el hold final queda en tau = 1
-      const sine = Math.sin(2 * Math.PI * a.rampSineCycles * tau);
+      const tt = Math.max(0, Math.min(D, Number(t) || 0)); // el hold final queda en t = D
+      const TAU = 2 * Math.PI;
       let phase = base.phase;
       let period = base.period;
       let rotation = base.rotation;
-      if (a.rampPhaseMode === "shift") {
-        // Un "ciclo" = un período completo de la rampa (en Espejo, ida y vuelta): el loop cierra sin salto
-        phase = base.phase + base.period * a.rampPhaseCycles * tau * (base.repeat === "mirror" ? 2 : 1);
+
+      if (a.rampPhaseMode === "run") {
+        // Corre de forma continua: 1 ciclo = un período completo de la rampa (en Espejo, ida y vuelta)
+        const cps = this.snapRate(a, a.rampPhaseSpeed);
+        phase = base.phase + base.period * cps * tt * (base.repeat === "mirror" ? 2 : 1);
+      } else if (a.rampPhaseMode === "bounce") {
+        const hz = this.snapRate(a, a.rampPhaseSpeed);
+        phase = base.phase + base.period * (a.rampPhaseAmt / 100) * Math.sin(TAU * hz * tt);
       }
-      if (a.rampPeriodMode === "sine") {
-        period = Math.max(1, Math.min(1000, base.period * (1 + (a.rampPeriodAmt / 100) * sine)));
+      if (a.rampPeriodMode === "bounce") {
+        const hz = this.snapRate(a, a.rampPeriodSpeed);
+        period = Math.max(1, Math.min(1000, base.period * (1 + (a.rampPeriodAmt / 100) * Math.sin(TAU * hz * tt))));
       }
-      if (a.rampRotMode === "spin") rotation = base.rotation + a.rampRotAmt * tau;
-      else if (a.rampRotMode === "sine") rotation = base.rotation + a.rampRotAmt * sine;
+      if (a.rampRotMode === "spin") {
+        const turns = this.snapRate(a, a.rampRotSpeed);
+        rotation = base.rotation + 360 * turns * tt;
+      } else if (a.rampRotMode === "bounce") {
+        const hz = this.snapRate(a, a.rampRotSpeed);
+        rotation = base.rotation + a.rampRotAmt * Math.sin(TAU * hz * tt);
+      }
       return { rotation, period, phase };
     },
 
@@ -1032,7 +1061,8 @@
         period: num(s.gradientPeriod, 100, 1, 1000),
         phase: num(s.gradientPhase, 0, -1000, 1000),
         flip: s.gradientFlip === true,
-        repeat: ["repeat", "mirror", "hold"].includes(s.gradientRepeat) ? s.gradientRepeat : "repeat"
+        repeat: ["repeat", "mirror", "hold"].includes(s.gradientRepeat) ? s.gradientRepeat : "repeat",
+        curve: ["linear", "smooth", "sine"].includes(s.gradientCurve) ? s.gradientCurve : "linear"
       };
     },
 
@@ -1063,6 +1093,9 @@
       if (p.repeat === "hold") f = Math.max(0, Math.min(1, s));
       else if (p.repeat === "mirror") { const m = ((s % 2) + 2) % 2; f = m <= 1 ? m : 2 - m; }
       else f = s - Math.floor(s);
+      // Curva: Suave (smoothstep) o Seno (coseno) redondean los picos del Espejo y los extremos
+      if (p.curve === "smooth") f = f * f * (3 - 2 * f);
+      else if (p.curve === "sine") f = 0.5 - 0.5 * Math.cos(Math.PI * f);
       return p.flip ? 1 - f : f;
     },
 
@@ -1087,9 +1120,19 @@
       }
       const stops = [];
       const add = (o, v) => stops.push({ o: Math.max(0, Math.min(1, o)), c: this.mix(color1, color2, v) });
-      add(0, this.valueAt(0, p, 1));
-      breaks.forEach(b => { add(b, this.valueAt(b, p, -1)); add(b, this.valueAt(b, p, 1)); });
-      add(1, this.valueAt(1, p, -1));
+      const pts = [0, ...breaks, 1];
+      // Con curva suave cada tramo se subdivide para que el degradado siga la curva
+      const sub = p.curve === "linear" ? 1 : Math.max(4, Math.min(48, Math.floor(400 / Math.max(1, pts.length - 1))));
+      for (let i = 0; i < pts.length - 1; i++) {
+        const u0 = pts[i];
+        const u1 = pts[i + 1];
+        add(u0, this.valueAt(u0, p, 1));
+        for (let k = 1; k < sub; k++) {
+          const u = u0 + (u1 - u0) * (k / sub);
+          add(u, this.valueAt(u, p, 0));
+        }
+        add(u1, this.valueAt(u1, p, -1));
+      }
 
       if (dir === "radial") {
         return { type: "radial", cx: x + w / 2, cy: y + h / 2, r: Math.hypot(w, h) / 2, stops };
@@ -2947,6 +2990,7 @@
           gradientPhase: state.settings.gradientPhase,
           gradientFlip: state.settings.gradientFlip,
           gradientRepeat: state.settings.gradientRepeat,
+          gradientCurve: state.settings.gradientCurve,
           showModuleLines: state.settings.showModuleLines,
           gridLineWidth: state.settings.gridLineWidth,
           gridLineColor: state.settings.gridLineColor,
@@ -4093,6 +4137,7 @@
       setV("opt-ramp-period", rp.period);
       setV("opt-ramp-phase", rp.phase);
       setV("opt-ramp-repeat", rp.repeat);
+      setV("opt-ramp-curve", rp.curve);
       const flipEl = document.getElementById("opt-ramp-flip");
       if (flipEl) flipEl.checked = rp.flip;
       linesChk.checked = state.settings.showModuleLines !== false;
@@ -4184,6 +4229,12 @@
       const rampRep = document.getElementById("opt-ramp-repeat");
       if (rampRep) rampRep.addEventListener("change", (e) => {
         state.settings.gradientRepeat = e.target.value;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      const rampCurve = document.getElementById("opt-ramp-curve");
+      if (rampCurve) rampCurve.addEventListener("change", (e) => {
+        state.settings.gradientCurve = e.target.value;
         RenderEngine.render();
         Persistence.saveAuto();
       });
@@ -4454,13 +4505,44 @@
       box.classList.toggle("hidden", a.effect !== "ramp_anim");
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
       set("anim-ramp-phase-mode", a.rampPhaseMode);
-      set("anim-ramp-phase-cycles", a.rampPhaseCycles);
+      set("anim-ramp-phase-speed", a.rampPhaseSpeed);
+      set("anim-ramp-phase-amt", a.rampPhaseAmt);
       set("anim-ramp-period-mode", a.rampPeriodMode);
+      set("anim-ramp-period-speed", a.rampPeriodSpeed);
       set("anim-ramp-period-amt", a.rampPeriodAmt);
       set("anim-ramp-rot-mode", a.rampRotMode);
+      set("anim-ramp-rot-speed", a.rampRotSpeed);
       set("anim-ramp-rot-amt", a.rampRotAmt);
-      set("anim-ramp-sine-cycles", a.rampSineCycles);
       set("anim-ramp-scope", a.rampScope);
+      const clean = document.getElementById("anim-ramp-loop-clean");
+      if (clean) clean.checked = a.rampLoopClean;
+      // Mostrar solo lo que aplica a cada modo
+      const vis = (id, show) => { const g = document.getElementById(id); if (g) g.classList.toggle("hidden", !show); };
+      vis("anim-ramp-phase-speed-group", a.rampPhaseMode !== "off");
+      vis("anim-ramp-phase-amt-group", a.rampPhaseMode === "bounce");
+      vis("anim-ramp-period-speed-group", a.rampPeriodMode !== "off");
+      vis("anim-ramp-period-amt-group", a.rampPeriodMode === "bounce");
+      vis("anim-ramp-rot-speed-group", a.rampRotMode !== "off");
+      vis("anim-ramp-rot-amt-group", a.rampRotMode === "bounce");
+      this.updateRampAnimInfo(a);
+    },
+
+    updateRampAnimInfo(a) {
+      const info = document.getElementById("anim-ramp-info");
+      if (!info) return;
+      a = a || AnimationEngine.getSettings();
+      const D = a.loopDuration;
+      const row = (name, mode, rate, unit) => {
+        if (mode === "off") return null;
+        const eff = AnimationEngine.snapRate(a, rate);
+        return `${name}: ${eff.toFixed(3)} ${unit} (${(Math.abs(eff) * D).toFixed(2)} ciclos en ${D} s)`;
+      };
+      const lines = [
+        row("Fase", a.rampPhaseMode, a.rampPhaseSpeed, a.rampPhaseMode === "run" ? "ciclos/s" : "Hz"),
+        row("Período", a.rampPeriodMode, a.rampPeriodSpeed, "Hz"),
+        row("Rotación", a.rampRotMode, a.rampRotSpeed, a.rampRotMode === "spin" ? "vueltas/s" : "Hz")
+      ].filter(Boolean);
+      info.textContent = lines.length ? lines.join(" · ") : "Sin variables animadas.";
     },
 
     /** Controles de "Secuencia de celdas": valores y visibilidad (solo con ese efecto elegido). */
@@ -4564,13 +4646,17 @@
         ["anim-ramp-rot-mode", "rampRotMode"], ["anim-ramp-scope", "rampScope"]
       ].forEach(([id, key]) => {
         const el = document.getElementById(id);
-        if (el) el.addEventListener("change", (e) => setAnim(key, e.target.value, false));
+        if (el) el.addEventListener("change", (e) => setAnim(key, e.target.value, true));
       });
+      const loopClean = document.getElementById("anim-ramp-loop-clean");
+      if (loopClean) loopClean.addEventListener("change", (e) => setAnim("rampLoopClean", e.target.checked, true));
       [
-        ["anim-ramp-phase-cycles", "rampPhaseCycles", -50, 50],
+        ["anim-ramp-phase-speed", "rampPhaseSpeed", -20, 20],
+        ["anim-ramp-phase-amt", "rampPhaseAmt", 0, 1000],
+        ["anim-ramp-period-speed", "rampPeriodSpeed", -20, 20],
         ["anim-ramp-period-amt", "rampPeriodAmt", 0, 95],
-        ["anim-ramp-rot-amt", "rampRotAmt", -3600, 3600],
-        ["anim-ramp-sine-cycles", "rampSineCycles", 1, 50]
+        ["anim-ramp-rot-speed", "rampRotSpeed", -20, 20],
+        ["anim-ramp-rot-amt", "rampRotAmt", 0, 3600]
       ].forEach(([id, key, min, max]) => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -4578,6 +4664,7 @@
           const v = parseFloat(e.target.value);
           if (isNaN(v)) return;
           setAnim(key, Math.max(min, Math.min(max, v)), false);
+          this.updateRampAnimInfo();
         });
       });
       document.getElementById("btn-cs-reshuffle").addEventListener("click", () => {
@@ -4618,7 +4705,7 @@
           const v = parseFloat(e.target.value);
           if (isNaN(v)) return;
           setAnim(key, Math.max(min, Math.min(max, v)), false);
-          if (key === "loopDuration") this.updateCellSeqInfo();
+          if (key === "loopDuration") { this.updateCellSeqInfo(); this.updateRampAnimInfo(); }
         });
       });
     },
