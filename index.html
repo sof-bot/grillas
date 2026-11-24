@@ -696,11 +696,16 @@
                   <select id="anim-cs-time-mode" class="form-select">
                     <option value="loop">Repartir en el loop</option>
                     <option value="cps">Celdas por segundo</option>
+                    <option value="sync">Sincronizadas (mismo inicio y fin)</option>
                   </select>
                 </div>
                 <div class="form-group" id="anim-cs-cps-group">
                   <label for="anim-cs-cps"><span>Velocidad</span><span class="label-unit">celdas/s</span></label>
                   <input type="number" id="anim-cs-cps" class="form-input" min="0.01" step="1" value="10">
+                </div>
+                <div class="form-group hidden" id="anim-cs-steps-group">
+                  <label for="anim-cs-steps"><span>Pasos del loop</span><span class="label-unit">pasos</span></label>
+                  <input type="number" id="anim-cs-steps" class="form-input" min="1" step="1" value="60">
                 </div>
               </div>
               <div class="form-grid-2">

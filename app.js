@@ -562,6 +562,7 @@
         csTrail: 5,
         csTimeMode: "loop",
         csCps: 10,
+        csSteps: 60,
         csPerStep: 1,
         csFade: 0,
         csScope: "simultaneous",
@@ -581,8 +582,9 @@
         csOrder: ["rows", "rows_rev", "columns", "snake", "random"].includes(a.csOrder) ? a.csOrder : def.csOrder,
         csMode: ["one", "cumulative", "trail"].includes(a.csMode) ? a.csMode : def.csMode,
         csTrail: Math.round(clamp(a.csTrail, def.csTrail, 1, 50)),
-        csTimeMode: a.csTimeMode === "cps" ? "cps" : "loop",
+        csTimeMode: ["loop", "cps", "sync"].includes(a.csTimeMode) ? a.csTimeMode : "loop",
         csCps: clamp(a.csCps, def.csCps, 0.01, 1000000),
+        csSteps: Math.round(clamp(a.csSteps, def.csSteps, 1, 100000)),
         csPerStep: Math.round(clamp(a.csPerStep, def.csPerStep, 1, 1000000)),
         csFade: clamp(a.csFade, def.csFade, 0, 30),
         csScope: a.csScope === "sequential" ? "sequential" : "simultaneous",
@@ -700,7 +702,26 @@
       });
       const sequential = a.csScope === "sequential";
       let total;
-      if (a.csTimeMode === "cps") {
+      if (a.csTimeMode === "sync") {
+        // Sincronizadas: todas las pantallas hacen M pasos del mismo largo y empiezan/terminan juntas.
+        // Cada paso enciende ~n/M celdas (más celdas por paso en las pantallas más grandes).
+        const D = a.loopDuration;
+        const M = Math.max(1, a.csSteps);
+        total = D;
+        const count = items.length || 1;
+        items.forEach((it, i) => {
+          it.sync = true;
+          it.m = M;
+          it.S = it.n / M;
+          if (sequential) {
+            it.dur = D / count;
+            it.t0 = i * it.dur;
+          } else {
+            it.dur = D;
+          }
+          it.stepDur = it.dur / M;
+        });
+      } else if (a.csTimeMode === "cps") {
         let acc = 0;
         let mx = 0;
         items.forEach(it => {
@@ -1498,12 +1519,16 @@
           const frac = p - s;
           const f = Math.min(fadeSec, it.stepDur);
           const phi = f > 0 ? Math.min(1, frac * it.stepDur / f) : 1;
+          // lo(j): primer turno del paso j. Sincronizadas reparte n celdas en m pasos iguales.
+          const lo = it.sync
+            ? (j => Math.floor(j * it.n / it.m))
+            : (j => Math.min(it.n, j * it.S));
           const stepRange = (j, alpha) => {
             if (j < 0 || j >= it.m) return;
-            paint(j * it.S, Math.min(it.n, (j + 1) * it.S), alpha);
+            paint(lo(j), lo(j + 1), alpha);
           };
           if (mode === "cumulative") {
-            paint(0, Math.min(it.n, Math.min(s, it.m) * it.S), 1);
+            paint(0, lo(Math.min(s, it.m)), 1);
             stepRange(s, phi);
           } else {
             const level = mode === "trail"
@@ -4192,6 +4217,7 @@
       el("anim-cs-trail").value = a.csTrail;
       el("anim-cs-time-mode").value = a.csTimeMode;
       el("anim-cs-cps").value = a.csCps;
+      el("anim-cs-steps").value = a.csSteps;
       el("anim-cs-per-step").value = a.csPerStep;
       el("anim-cs-fade").value = a.csFade;
       el("anim-cs-scope").value = a.csScope;
@@ -4200,6 +4226,9 @@
       el("anim-cs-random-group").classList.toggle("hidden", a.csOrder !== "random");
       el("anim-cs-trail-group").classList.toggle("hidden", a.csMode !== "trail");
       el("anim-cs-cps-group").classList.toggle("hidden", a.csTimeMode !== "cps");
+      el("anim-cs-steps-group").classList.toggle("hidden", a.csTimeMode !== "sync");
+      const perStepGroup = el("anim-cs-per-step").closest(".form-group");
+      if (perStepGroup) perStepGroup.classList.toggle("hidden", a.csTimeMode === "sync");
       if (isCs) this.updateCellSeqInfo(a);
     },
 
@@ -4210,7 +4239,12 @@
       const plan = AnimationEngine.getCellSeqPlan(a);
       const cells = plan.items.reduce((q, it) => q + it.n, 0);
       const stepDur = plan.items.length ? plan.items[0].stepDur : 0;
-      info.textContent = `${plan.items.length} pantalla(s), ${cells} celdas, ${stepDur.toFixed(3)} s por paso, loop de ${plan.total.toFixed(2)} s`;
+      let txt = `${plan.items.length} pantalla(s), ${cells} celdas, ${stepDur.toFixed(3)} s por paso, loop de ${plan.total.toFixed(2)} s`;
+      if (a.csTimeMode === "sync" && plan.items.length) {
+        const per = plan.items.map(it => `${it.screen.label || "?"}: ${(it.n / it.m).toFixed(1)}`).join(" · ");
+        txt += `. Celdas por paso: ${per}`;
+      }
+      info.textContent = txt;
     },
 
     bindAnimationControls() {
@@ -4253,6 +4287,7 @@
         ["anim-cs-seed", "csSeed", 0, 4294967295],
         ["anim-cs-trail", "csTrail", 1, 50],
         ["anim-cs-cps", "csCps", 0.01, 1000000],
+        ["anim-cs-steps", "csSteps", 1, 100000],
         ["anim-cs-per-step", "csPerStep", 1, 1000000],
         ["anim-cs-fade", "csFade", 0, 30]
       ].forEach(([id, key, min, max]) => {
@@ -4300,6 +4335,7 @@
           const v = parseFloat(e.target.value);
           if (isNaN(v)) return;
           setAnim(key, Math.max(min, Math.min(max, v)), false);
+          if (key === "loopDuration") this.updateCellSeqInfo();
         });
       });
     },
