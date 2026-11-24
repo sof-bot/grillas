@@ -195,6 +195,8 @@
       gradientFlip: false,
       gradientRepeat: "repeat",
       gradientCurve: "linear",
+      gradientCenterX: 50,
+      gradientCenterY: 50,
       showModuleLines: true,
       gridLineWidth: 1,
       gridLineColor: "#ffffff",
@@ -581,6 +583,7 @@
         csScope: "simultaneous",
         csOnlySelected: false,
         csInvert: false,
+        csSource: "checker",
         csSeed: 1,
         rampPhaseMode: "run",
         rampPhaseSpeed: 0.25,
@@ -614,6 +617,7 @@
         csScope: a.csScope === "sequential" ? "sequential" : "simultaneous",
         csOnlySelected: a.csOnlySelected === true,
         csInvert: a.csInvert === true,
+        csSource: a.csSource === "display" ? "display" : "checker",
         csSeed: Math.floor(clamp(a.csSeed, def.csSeed, 0, 4294967295)),
         rampPhaseMode: ["off", "run", "bounce"].includes(a.rampPhaseMode) ? a.rampPhaseMode : def.rampPhaseMode,
         rampPhaseSpeed: clamp(a.rampPhaseSpeed, def.rampPhaseSpeed, -20, 20),
@@ -1062,7 +1066,9 @@
         phase: num(s.gradientPhase, 0, -1000, 1000),
         flip: s.gradientFlip === true,
         repeat: ["repeat", "mirror", "hold"].includes(s.gradientRepeat) ? s.gradientRepeat : "repeat",
-        curve: ["linear", "smooth", "sine"].includes(s.gradientCurve) ? s.gradientCurve : "linear"
+        curve: ["linear", "smooth", "sine"].includes(s.gradientCurve) ? s.gradientCurve : "linear",
+        cx: num(s.gradientCenterX, 50, -100, 200),
+        cy: num(s.gradientCenterY, 50, -100, 200)
       };
     },
 
@@ -1135,7 +1141,14 @@
       }
 
       if (dir === "radial") {
-        return { type: "radial", cx: x + w / 2, cy: y + h / 2, r: Math.hypot(w, h) / 2, stops };
+        // Circular: centro en % del rectángulo; el radio llega a la esquina más lejana (con 50/50 = media diagonal)
+        const rcx = x + w * p.cx / 100;
+        const rcy = y + h * p.cy / 100;
+        const far = Math.max(
+          Math.hypot(rcx - x, rcy - y), Math.hypot(rcx - (x + w), rcy - y),
+          Math.hypot(rcx - x, rcy - (y + h)), Math.hypot(rcx - (x + w), rcy - (y + h))
+        );
+        return { type: "radial", cx: rcx, cy: rcy, r: Math.max(1, far), stops };
       }
       let base = 0;
       if (dir === "vertical") base = 90;
@@ -1651,8 +1664,28 @@
     },
 
     /** Dibuja las celdas de los turnos [k0, k1) con alpha. flat = color fijo; si no, color de damero (2 pasadas por paridad). */
+    /** Celdas de los turnos [k0, k1) mostrando la visualización real de la pantalla (grilla, degradado, test card…). */
+    drawCellSeqDisplay(ctx, it, order, perm, k0, k1, alpha) {
+      const { n, cols, rows, x, y, colStep, rowStep } = it;
+      ctx.save();
+      ctx.beginPath();
+      for (let k = k0; k < k1; k++) {
+        const v = this.cellSeqIndexAt(order, k, n, cols, rows, perm);
+        const r = Math.floor(v / cols);
+        const c = v - r * cols;
+        const cx = Math.round(x + c * colStep);
+        const cy = Math.round(y + r * rowStep);
+        ctx.rect(cx, cy, Math.round(x + (c + 1) * colStep) - cx, Math.round(y + (r + 1) * rowStep) - cy);
+      }
+      ctx.clip();
+      ctx.globalAlpha = alpha > 1 ? 1 : alpha;
+      this.renderScreen(ctx, it.screen, false, false, 1, true);
+      ctx.restore();
+    },
+
     drawCellSeqRange(ctx, it, order, perm, k0, k1, alpha, flat) {
       if (k1 <= k0 || alpha <= 0) return;
+      if (!flat && it.sourceDisplay) { this.drawCellSeqDisplay(ctx, it, order, perm, k0, k1, alpha); return; }
       const { n, cols, rows, x, y, colStep, rowStep } = it;
       ctx.globalAlpha = alpha > 1 ? 1 : alpha;
       const passes = flat ? 1 : 2;
@@ -1705,6 +1738,8 @@
         it.colStep = screen.widthPx / it.cols;
         it.rowStep = screen.heightPx / it.rows;
         it.color1 = screen.color1; it.color2 = screen.color2;
+        it.screen = screen;
+        it.sourceDisplay = a.csSource === "display";
         const flat = maskMode ? "#ffffff" : null;
         const perm = a.csOrder === "random" ? AnimationEngine.getCellPermutation(it.n, a.csSeed) : null;
         const order = a.csOrder;
@@ -1819,7 +1854,7 @@
       });
     },
 
-    renderScreen(ctx, screen, isSelected, isPrimary, intensity = 1) {
+    renderScreen(ctx, screen, isSelected, isPrimary, intensity = 1, skipLabels = false) {
       const { x, y, widthPx, heightPx, color1, color2 } = screen;
       const { cols, rows } = this.getScreenCellGrid(screen);
       const mode = this.getScreenDisplayMode(screen);
@@ -1877,7 +1912,7 @@
       }
 
       if (state.settings.showLabels) {
-        this.renderScreenLabels(ctx, screen);
+        if (!skipLabels) this.renderScreenLabels(ctx, screen);
       }
 
       if (intensity < 1) {
@@ -2991,6 +3026,8 @@
           gradientFlip: state.settings.gradientFlip,
           gradientRepeat: state.settings.gradientRepeat,
           gradientCurve: state.settings.gradientCurve,
+          gradientCenterX: state.settings.gradientCenterX,
+          gradientCenterY: state.settings.gradientCenterY,
           showModuleLines: state.settings.showModuleLines,
           gridLineWidth: state.settings.gridLineWidth,
           gridLineColor: state.settings.gridLineColor,
@@ -4138,6 +4175,10 @@
       setV("opt-ramp-phase", rp.phase);
       setV("opt-ramp-repeat", rp.repeat);
       setV("opt-ramp-curve", rp.curve);
+      setV("opt-ramp-cx", rp.cx);
+      setV("opt-ramp-cy", rp.cy);
+      const cGroup = document.getElementById("opt-ramp-center-group");
+      if (cGroup) cGroup.classList.toggle("hidden", state.settings.gradientDirection !== "radial");
       const flipEl = document.getElementById("opt-ramp-flip");
       if (flipEl) flipEl.checked = rp.flip;
       linesChk.checked = state.settings.showModuleLines !== false;
@@ -4206,6 +4247,8 @@
       });
       document.getElementById("opt-gradient-direction").addEventListener("change", (e) => {
         state.settings.gradientDirection = e.target.value;
+        this.updateDisplayModeControls();
+        this.updateAnimationControls();
         this.updateActiveScreenForm();
         RenderEngine.render();
         Persistence.saveAuto();
@@ -4213,7 +4256,9 @@
       const rampNum = [
         ["opt-ramp-rotation", "gradientRotation", -360, 360],
         ["opt-ramp-period", "gradientPeriod", 1, 1000],
-        ["opt-ramp-phase", "gradientPhase", -1000, 1000]
+        ["opt-ramp-phase", "gradientPhase", -1000, 1000],
+        ["opt-ramp-cx", "gradientCenterX", -100, 200],
+        ["opt-ramp-cy", "gradientCenterY", -100, 200]
       ];
       rampNum.forEach(([id, key, min, max]) => {
         const el = document.getElementById(id);
@@ -4514,6 +4559,7 @@
       set("anim-ramp-rot-speed", a.rampRotSpeed);
       set("anim-ramp-rot-amt", a.rampRotAmt);
       set("anim-ramp-scope", a.rampScope);
+      set("anim-ramp-type", state.settings.gradientDirection || "horizontal");
       const clean = document.getElementById("anim-ramp-loop-clean");
       if (clean) clean.checked = a.rampLoopClean;
       // Mostrar solo lo que aplica a cada modo
@@ -4564,6 +4610,7 @@
       el("anim-cs-per-step").value = a.csPerStep;
       el("anim-cs-fade").value = a.csFade;
       el("anim-cs-scope").value = a.csScope;
+      el("anim-cs-source").value = a.csSource;
       el("anim-cs-only-selected").checked = a.csOnlySelected;
       el("anim-cs-invert").checked = a.csInvert;
       el("anim-cs-random-group").classList.toggle("hidden", a.csOrder !== "random");
@@ -4619,7 +4666,7 @@
       document.getElementById("anim-effect").addEventListener("change", (e) => setAnim("effect", e.target.value, true));
       const csSel = [
         ["anim-cs-order", "csOrder"], ["anim-cs-mode", "csMode"],
-        ["anim-cs-time-mode", "csTimeMode"], ["anim-cs-scope", "csScope"]
+        ["anim-cs-time-mode", "csTimeMode"], ["anim-cs-scope", "csScope"], ["anim-cs-source", "csSource"]
       ];
       csSel.forEach(([id, key]) => document.getElementById(id).addEventListener("change", (e) => setAnim(key, e.target.value, true)));
       ["anim-cs-only-selected:csOnlySelected", "anim-cs-invert:csInvert"].forEach(pair => {
@@ -4647,6 +4694,14 @@
       ].forEach(([id, key]) => {
         const el = document.getElementById(id);
         if (el) el.addEventListener("change", (e) => setAnim(key, e.target.value, true));
+      });
+      const rampType = document.getElementById("anim-ramp-type");
+      if (rampType) rampType.addEventListener("change", (e) => {
+        state.settings.gradientDirection = e.target.value;
+        this.updateDisplayModeControls();
+        this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
       });
       const loopClean = document.getElementById("anim-ramp-loop-clean");
       if (loopClean) loopClean.addEventListener("change", (e) => setAnim("rampLoopClean", e.target.checked, true));
@@ -5868,6 +5923,236 @@
       if (btnMp4) btnMp4.addEventListener("click", () => this.exportMP4());
       const btnCancelMp4 = document.getElementById("btn-cancel-mp4");
       if (btnCancelMp4) btnCancelMp4.addEventListener("click", () => { this.mp4Cancelled = true; });
+      const btnSeq = document.getElementById("btn-export-png-seq");
+      if (btnSeq) btnSeq.addEventListener("click", () => this.exportPngSequence());
+    },
+
+    /** CRC-32 (para el ZIP). */
+    crc32(bytes) {
+      if (!this._crcTable) {
+        const t = new Uint32Array(256);
+        for (let n = 0; n < 256; n++) {
+          let c = n;
+          for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+          t[n] = c >>> 0;
+        }
+        this._crcTable = t;
+      }
+      const t = this._crcTable;
+      let crc = 0xFFFFFFFF;
+      for (let i = 0; i < bytes.length; i++) crc = t[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+      return (crc ^ 0xFFFFFFFF) >>> 0;
+    },
+
+    /**
+     * Exporta la animación como secuencia de PNG (sin pérdida) dentro de un ZIP, usando el mismo
+     * drawAnimationFrame que la vista previa y el MP4. Ideal para degradados: no hay compresión con pérdida.
+     */
+    async exportPngSequence() {
+      if (this.mp4Exporting) return;
+      this.mp4Exporting = true;
+
+      const btnSeq = document.getElementById("btn-export-png-seq");
+      const progBox = document.getElementById("anim-mp4-progress-box");
+      const progBar = document.getElementById("anim-mp4-progress");
+      const progText = document.getElementById("anim-mp4-progress-text");
+      const statusEl = document.getElementById("anim-mp4-status");
+      const fpsSel = document.getElementById("anim-mp4-fps");
+      const bgSel = document.getElementById("anim-mp4-bg");
+      const lockRoot = document.getElementById("anim-effect").closest("section") || document.body;
+      const setStatus = (msg) => {
+        if (!statusEl) return;
+        statusEl.textContent = msg;
+        statusEl.classList.remove("hidden");
+      };
+
+      let offscreen = null;
+      let wasPlaying = false;
+      const locked = [];
+      let stage = "inicio";
+      try {
+        if (statusEl) statusEl.classList.add("hidden");
+        this.mp4Cancelled = false;
+        RenderEngine.computeCanvasBounds();
+        const W = state.canvas.computedWidth;
+        const H = state.canvas.computedHeight;
+        const fps = Math.max(1, Number(fpsSel && fpsSel.value) || 30);
+        const mask = !!bgSel && bgSel.value === "mask";
+        const totalFrames = Math.max(1, Math.round(AnimationEngine.getLoopDuration() * fps));
+        if (totalFrames > 20000) throw new Error("Demasiados cuadros para un ZIP. Bajá los fps o la duración.");
+
+        offscreen = document.createElement("canvas");
+        offscreen.width = W;
+        offscreen.height = H;
+        const oCtx = offscreen.getContext("2d", { alpha: false });
+
+        wasPlaying = AnimationEngine.status === "playing";
+        AnimationEngine.pause();
+        lockRoot.querySelectorAll("input, select, button").forEach(el => {
+          if (el.id === "btn-cancel-mp4" || el === btnSeq || el.disabled) return;
+          el.disabled = true;
+          locked.push(el);
+        });
+        if (btnSeq) btnSeq.disabled = true;
+        if (progBox) progBox.classList.remove("hidden");
+        if (progBar) progBar.value = 0;
+        if (progText) progText.textContent = `Cuadro 0 de ${totalFrames}`;
+        setStatus("Generando secuencia PNG…");
+
+        const enc = new TextEncoder();
+        const now = new Date();
+        const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+        const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+        const parts = [];
+        const central = [];
+        let offset = 0;
+
+        stage = "codificación de cuadros PNG";
+        for (let i = 0; i < totalFrames; i++) {
+          if (this.mp4Cancelled) break;
+          drawAnimationFrame(oCtx, i / fps, { mask });
+          const blob = await new Promise((resolve) => offscreen.toBlob(resolve, "image/png"));
+          if (!blob) throw new Error("El navegador no pudo generar el PNG del cuadro " + (i + 1) + ".");
+          const data = new Uint8Array(await blob.arrayBuffer());
+          const nameBytes = enc.encode(`frame_${String(i + 1).padStart(4, "0")}.png`);
+          const crc = this.crc32(data);
+
+          const lh = new DataView(new ArrayBuffer(30));
+          lh.setUint32(0, 0x04034b50, true);
+          lh.setUint16(4, 20, true);
+          lh.setUint16(6, 0x0800, true);
+          lh.setUint16(8, 0, true);
+          lh.setUint16(10, dosTime, true);
+          lh.setUint16(12, dosDate, true);
+          lh.setUint32(14, crc, true);
+          lh.setUint32(18, data.length, true);
+          lh.setUint32(22, data.length, true);
+          lh.setUint16(26, nameBytes.length, true);
+          lh.setUint16(28, 0, true);
+          parts.push(lh.buffer, nameBytes, data);
+
+          const ch = new DataView(new ArrayBuffer(46));
+          ch.setUint32(0, 0x02014b50, true);
+          ch.setUint16(4, 20, true);
+          ch.setUint16(6, 20, true);
+          ch.setUint16(8, 0x0800, true);
+          ch.setUint16(10, 0, true);
+          ch.setUint16(12, dosTime, true);
+          ch.setUint16(14, dosDate, true);
+          ch.setUint32(16, crc, true);
+          ch.setUint32(20, data.length, true);
+          ch.setUint32(24, data.length, true);
+          ch.setUint16(28, nameBytes.length, true);
+          ch.setUint32(42, offset, true);
+          central.push(ch.buffer, nameBytes);
+
+          offset += 30 + nameBytes.length + data.length;
+          if (offset > 4_000_000_000) throw new Error("La secuencia supera los 4 GB (límite del ZIP). Bajá los fps, la duración o la resolución.");
+          const pct = Math.round(((i + 1) / totalFrames) * 100);
+          if (progBar) progBar.value = pct;
+          if (progText) progText.textContent = `Cuadro ${i + 1} de ${totalFrames}`;
+          await new Promise(r => setTimeout(r));
+        }
+
+        if (this.mp4Cancelled) {
+          setStatus("Exportación de la secuencia cancelada.");
+          return;
+        }
+
+        stage = "armado del ZIP";
+        let cdSize = 0;
+        central.forEach(p => { cdSize += p.byteLength !== undefined ? p.byteLength : p.length; });
+        const end = new DataView(new ArrayBuffer(22));
+        end.setUint32(0, 0x06054b50, true);
+        end.setUint16(8, totalFrames, true);
+        end.setUint16(10, totalFrames, true);
+        end.setUint32(12, cdSize, true);
+        end.setUint32(16, offset, true);
+        const zip = new Blob([...parts, ...central, end.buffer], { type: "application/zip" });
+        const url = URL.createObjectURL(zip);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `animacion_${W}x${H}_${fps}fps_png.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        setStatus(`Listo · ${totalFrames} PNG · ${(zip.size / (1024 * 1024)).toFixed(1)} MB`);
+      } catch (err) {
+        const msg = `No se pudo exportar la secuencia PNG, fallo en ${stage}: ${err && err.message ? err.message : err}`;
+        console.error("[Exportar PNG] " + msg, err);
+        setStatus(msg);
+        alert(msg);
+      } finally {
+        this.mp4Exporting = false;
+        this.mp4Cancelled = false;
+        locked.forEach(el => { el.disabled = false; });
+        if (btnSeq) btnSeq.disabled = false;
+        if (progBox) progBox.classList.add("hidden");
+        if (offscreen) { offscreen.width = 0; offscreen.height = 0; }
+        offscreen = null;
+        try {
+          UIController.syncAnimationPlaybackUI();
+          if (wasPlaying) AnimationEngine.play(); else RenderEngine.render();
+        } catch (e) { console.error("[Exportar PNG] No se pudo restaurar la vista previa", e); }
+      }
+    },
+
+    // RGBA -> I420 (BT.709, rango limitado) con dither ordenado (Bayer 8x8).
+    // Los degradados oscuros en 8 bits YUV tienen muy pocos niveles; el dither reparte el error y elimina las bandas.
+    buildDitherTables() {
+      if (this._bayer) return this._bayer;
+      const b2 = [[0, 2], [3, 1]];
+      let m = b2;
+      for (let k = 0; k < 2; k++) {
+        const n = m.length, nm = [];
+        for (let y = 0; y < n * 2; y++) nm.push(new Array(n * 2));
+        for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+          const v = m[y][x] * 4;
+          nm[y][x] = v; nm[y][x + n] = v + 2; nm[y + n][x] = v + 3; nm[y + n][x + n] = v + 1;
+        }
+        m = nm;
+      }
+      const t = new Float32Array(64);
+      for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) t[y * 8 + x] = (m[y][x] + 0.5) / 64 - 0.5; // -0.5..0.5
+      this._bayer = t;
+      return t;
+    },
+
+    rgbaToI420Dither(rgba, w, h, out, frameIdx, dither) {
+      const T = this.buildDitherTables();
+      const ySize = w * h, cw = w >> 1, ch = h >> 1;
+      const uOff = ySize, vOff = ySize + cw * ch;
+      // desplazamiento del patrón por cuadro (evita bandas fijas; el patrón sigue siendo ordenado)
+      const so = dither ? ((frameIdx * 3) & 7) : 0;
+      const ky = 219 / 255, kc = 224 / 255;
+      for (let y = 0; y < h; y += 2) {
+        const r0 = y * w * 4, r1 = r0 + w * 4;
+        for (let x = 0; x < w; x += 2) {
+          let sr = 0, sg = 0, sb = 0;
+          for (let dy = 0; dy < 2; dy++) {
+            const base = dy ? r1 : r0;
+            for (let dx = 0; dx < 2; dx++) {
+              const i = base + (x + dx) * 4;
+              const R = rgba[i], G = rgba[i + 1], B = rgba[i + 2];
+              sr += R; sg += G; sb += B;
+              const yy = 16 + ky * (0.2126 * R + 0.7152 * G + 0.0722 * B);
+              const d = dither ? T[(((y + dy + so) & 7) << 3) | ((x + dx + so) & 7)] : 0;
+              let q = Math.floor(yy + 0.5 + d);
+              out[(y + dy) * w + x + dx] = q < 16 ? 16 : q > 235 ? 235 : q;
+            }
+          }
+          const R = sr * 0.25, G = sg * 0.25, B = sb * 0.25;
+          const cb = 128 + kc * (-0.1146 * R - 0.3854 * G + 0.5 * B);
+          const cr = 128 + kc * (0.5 * R - 0.4542 * G - 0.0458 * B);
+          const dd = dither ? T[((((y >> 1) + so) & 7) << 3) | (((x >> 1) + so) & 7)] : 0;
+          const dd2 = dither ? T[((((y >> 1) + so + 3) & 7) << 3) | (((x >> 1) + so + 5) & 7)] : 0;
+          let qu = Math.floor(cb + 0.5 + dd), qv = Math.floor(cr + 0.5 + dd2);
+          const ci = (y >> 1) * cw + (x >> 1);
+          out[uOff + ci] = qu < 16 ? 16 : qu > 240 ? 240 : qu;
+          out[vOff + ci] = qv < 16 ? 16 : qv > 240 ? 240 : qv;
+        }
+      }
     },
 
     async exportMP4() {
@@ -5882,6 +6167,7 @@
       const qualitySel = document.getElementById("anim-mp4-quality");
       const fpsSel = document.getElementById("anim-mp4-fps");
       const bgSel = document.getElementById("anim-mp4-bg");
+      const ditherChk = document.getElementById("anim-mp4-dither");
       const lockRoot = document.getElementById("anim-effect").closest("section") || document.body;
 
       const setStatus = (msg) => {
@@ -5915,12 +6201,12 @@
 
         const fps = Math.max(1, Number(fpsSel && fpsSel.value) || 30);
         const mask = !!bgSel && bgSel.value === "mask";
-        const quality = qualitySel && qualitySel.value === "high" ? "high" : "normal";
-        const pxScale = Math.min(1, Math.max(0, (encW * encH - 1280 * 720) / (3840 * 2160 - 1280 * 720)));
+        const quality = qualitySel ? qualitySel.value : "normal";
+        const useDither = !ditherChk || ditherChk.checked;
+        // Bits por píxel y por cuadro: los degradados y las líneas finas necesitan mucho más bitrate que un video común
+        const bpp = quality === "max" ? 0.5 : quality === "high" ? 0.25 : 0.12;
         // Bits por segundo (entero)
-        const baseBitrate = Math.round((quality === "high"
-          ? 12_000_000 + pxScale * 8_000_000
-          : 8_000_000 + pxScale * 6_000_000) * fps / 30);
+        const baseBitrate = Math.round(Math.max(8_000_000, Math.min(200_000_000, encW * encH * fps * bpp)));
 
         // Aviso de lienzo grande (límites H.264: nivel 5.1 = 4096 px de lado y 983 040 macrobloques/s)
         const macroblocksPerSec = Math.ceil(encW / 16) * Math.ceil(encH / 16) * fps;
@@ -5939,7 +6225,7 @@
         // b. Soporte del codificador con el bitrate elegido; si no, probar bitrates menores
         stage = "comprobación del codificador H.264 (canEncodeVideo)";
         let bitrate = 0;
-        for (const factor of [1, 0.8, 0.6, 0.4]) {
+        for (const factor of [1, 0.8, 0.6, 0.4, 0.25]) {
           const candidate = Math.round(baseBitrate * factor);
           if (await mb.canEncodeVideo("avc", { width: encW, height: encH, bitrate: candidate })) {
             bitrate = candidate;
@@ -5948,11 +6234,11 @@
         }
         if (!bitrate) {
           throw new Error(`Este navegador no puede codificar H.264 a ${encW} × ${encH} px / ${fps} fps ni con bitrate reducido ` +
-            `(probado hasta ${(Math.round(baseBitrate * 0.4) / 1e6).toFixed(1)} Mbps). Bajá los fps a 25/24, la calidad o la resolución del lienzo, o probá en Chrome/Edge.`);
+            `(probado hasta ${(Math.round(baseBitrate * 0.25) / 1e6).toFixed(1)} Mbps). Bajá los fps a 25/24, la calidad o la resolución del lienzo, o probá en Chrome/Edge.`);
         }
         const usedMbps = (bitrate / 1e6).toFixed(1);
         const bitrateNote = bitrate === baseBitrate
-          ? `Bitrate: ${usedMbps} Mbps.`
+          ? `Bitrate: ${usedMbps} Mbps${useDither ? " · dither" : ""}.`
           : `Bitrate pedido ${(baseBitrate / 1e6).toFixed(1)} Mbps no aceptado; se usó ${usedMbps} Mbps.`;
 
         const totalFrames = Math.max(1, Math.round(AnimationEngine.getLoopDuration() * fps));
@@ -5961,7 +6247,9 @@
         offscreen = document.createElement("canvas");
         offscreen.width = encW;
         offscreen.height = encH;
-        const oCtx = offscreen.getContext("2d", { alpha: false });
+        const oCtx = offscreen.getContext("2d", { alpha: false, willReadFrequently: useDither });
+        let yuvBuf = null;
+        if (useDither) yuvBuf = new Uint8Array(encW * encH * 3 / 2);
 
         // Bloqueo de UI y pausa de la vista previa
         wasPlaying = AnimationEngine.status === "playing";
@@ -5982,7 +6270,8 @@
           format: new mb.Mp4OutputFormat({ fastStart: "in-memory" }),
           target: new mb.BufferTarget()
         });
-        source = new mb.CanvasSource(offscreen, { codec: "avc", bitrate });
+        const encCfg = { codec: "avc", bitrate, keyFrameInterval: 1, latencyMode: "quality" };
+        source = useDither ? new mb.VideoSampleSource(encCfg) : new mb.CanvasSource(offscreen, encCfg);
         output.addVideoTrack(source, { frameRate: fps });
         await output.start();
 
@@ -5991,7 +6280,18 @@
         for (let i = 0; i < totalFrames; i++) {
           if (this.mp4Cancelled) break;
           drawAnimationFrame(oCtx, i / fps, { mask });
-          await source.add(i / fps, 1 / fps);
+          if (useDither) {
+            const img = oCtx.getImageData(0, 0, encW, encH);
+            this.rgbaToI420Dither(img.data, encW, encH, yuvBuf, i, true);
+            const sample = new mb.VideoSample(yuvBuf, {
+              format: "I420", codedWidth: encW, codedHeight: encH,
+              timestamp: i / fps, duration: 1 / fps,
+              colorSpace: { primaries: "bt709", transfer: "bt709", matrix: "bt709", fullRange: false }
+            });
+            try { await source.add(sample); } finally { sample.close(); }
+          } else {
+            await source.add(i / fps, 1 / fps);
+          }
           const pct = Math.round(((i + 1) / totalFrames) * 100);
           if (progBar) progBar.value = pct;
           if (progText) progText.textContent = `Cuadro ${i + 1} de ${totalFrames}`;

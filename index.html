@@ -418,6 +418,16 @@
                   </select>
                 </div>
               </div>
+              <div class="form-grid-2 hidden" id="opt-ramp-center-group">
+                <div class="form-group">
+                  <label for="opt-ramp-cx"><span>Centro X</span><span class="label-unit">%</span></label>
+                  <input type="number" id="opt-ramp-cx" class="form-input" min="-100" max="200" step="1" value="50">
+                </div>
+                <div class="form-group">
+                  <label for="opt-ramp-cy"><span>Centro Y</span><span class="label-unit">%</span></label>
+                  <input type="number" id="opt-ramp-cy" class="form-input" min="-100" max="200" step="1" value="50">
+                </div>
+              </div>
               <label class="setting-row">
                 <span>Flip (invertir rampa)</span>
                 <input type="checkbox" id="opt-ramp-flip">
@@ -702,6 +712,16 @@
             <div id="anim-ramp-params" class="hidden">
               <p class="small-text" style="margin:2px 0 8px;">Parte de la rampa de Ajustes → Degradado (dirección, rotación, período, fase, repetición, curva y flip) y anima las variables elegidas, como el Ramp TOP de TouchDesigner. Velocidad en ciclos por segundo.</p>
 
+              <div class="form-group">
+                <label for="anim-ramp-type">Tipo de rampa</label>
+                <select id="anim-ramp-type" class="form-select">
+                  <option value="horizontal">Lineal horizontal</option>
+                  <option value="vertical">Lineal vertical</option>
+                  <option value="diagonal">Lineal diagonal</option>
+                  <option value="radial">Circular</option>
+                </select>
+              </div>
+
               <div class="form-grid-3">
                 <div class="form-group">
                   <label for="anim-ramp-phase-mode">Fase</label>
@@ -712,7 +732,7 @@
                   </select>
                 </div>
                 <div class="form-group" id="anim-ramp-phase-speed-group">
-                  <label for="anim-ramp-phase-speed"><span>Velocidad</span><span class="label-unit">ciclos/s</span></label>
+                  <label for="anim-ramp-phase-speed"><span>Velocidad</span><span class="label-unit">ciclos/s (− al revés)</span></label>
                   <input type="number" id="anim-ramp-phase-speed" class="form-input" min="-20" max="20" step="0.05" value="0.25">
                 </div>
                 <div class="form-group hidden" id="anim-ramp-phase-amt-group">
@@ -834,6 +854,13 @@
                 </div>
               </div>
               <div class="form-group">
+                <label for="anim-cs-source">Enmascara</label>
+                <select id="anim-cs-source" class="form-select">
+                  <option value="checker">Damero</option>
+                  <option value="display">Visualización de la pantalla (grilla, degradado, test card)</option>
+                </select>
+              </div>
+              <div class="form-group">
                 <label for="anim-cs-scope">Entre pantallas</label>
                 <select id="anim-cs-scope" class="form-select">
                   <option value="simultaneous">En simultáneo</option>
@@ -872,13 +899,22 @@
               <div class="form-group" style="margin:0;">
                 <label for="anim-mp4-quality">Calidad</label>
                 <select id="anim-mp4-quality" class="form-select">
-                  <option value="normal">Normal (8–14 Mbps)</option>
-                  <option value="high">Alta (12–20 Mbps)</option>
+                  <option value="normal">Normal (0,12 bits/píxel)</option>
+                  <option value="high">Alta (0,25 bits/píxel)</option>
+                  <option value="max">Máxima (0,5 bits/píxel, degradados)</option>
                 </select>
               </div>
               <div class="form-group" style="margin:0;">
                 <button type="button" id="btn-export-mp4" class="btn btn-primary btn-block">Exportar MP4</button>
               </div>
+            </div>
+            <div class="form-group" style="margin:8px 0 0;">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;" title="Reparte el error de cuantización en los degradados para evitar las bandas del MP4 (algo más lento)">
+                <input type="checkbox" id="anim-mp4-dither" checked> Anti-banding (dither) en degradados
+              </label>
+            </div>
+            <div class="form-group" style="margin:8px 0 0;">
+              <button type="button" id="btn-export-png-seq" class="btn btn-secondary btn-block" title="Cada cuadro como PNG dentro de un ZIP, sin compresión con pérdida (ideal para degradados)">Exportar secuencia PNG (ZIP, sin pérdida)</button>
             </div>
             <div id="anim-mp4-progress-box" class="hidden" style="margin-top:8px;">
               <progress id="anim-mp4-progress" value="0" max="100" style="width:100%;height:10px;"></progress>
