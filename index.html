@@ -596,6 +596,7 @@
                   <option value="sequence_strobe">Secuencia + strobe</option>
                   <option value="random_sequence">Secuencia aleatoria</option>
                   <option value="cell_sequence">Secuencia de celdas</option>
+                  <option value="ramp_anim">Rampa animada</option>
                 </select>
               </div>
               <div class="form-group">
@@ -687,6 +688,63 @@
               </div>
               <div class="form-group">
                 <small id="anim-strobe-real-freq" class="small-text">Frecuencia real: 4.00 Hz (24 ciclos)</small>
+              </div>
+            </div>
+
+            <div id="anim-ramp-params" class="hidden">
+              <p class="small-text" style="margin:2px 0 8px;">Parte de la rampa de Ajustes → Degradado (dirección, rotación, período, fase, repetición y flip) y anima las variables elegidas.</p>
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="anim-ramp-phase-mode">Fase</label>
+                  <select id="anim-ramp-phase-mode" class="form-select">
+                    <option value="off">Fija</option>
+                    <option value="shift">Desplazar</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="anim-ramp-phase-cycles"><span>Ciclos por loop</span><span class="label-unit">(− invierte)</span></label>
+                  <input type="number" id="anim-ramp-phase-cycles" class="form-input" min="-50" max="50" step="1" value="1">
+                </div>
+              </div>
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="anim-ramp-period-mode">Período</label>
+                  <select id="anim-ramp-period-mode" class="form-select">
+                    <option value="off">Fijo</option>
+                    <option value="sine">Vaivén</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="anim-ramp-period-amt"><span>Variación</span><span class="label-unit">± %</span></label>
+                  <input type="number" id="anim-ramp-period-amt" class="form-input" min="0" max="95" step="1" value="50">
+                </div>
+              </div>
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="anim-ramp-rot-mode">Rotación</label>
+                  <select id="anim-ramp-rot-mode" class="form-select">
+                    <option value="off">Fija</option>
+                    <option value="spin">Giro</option>
+                    <option value="sine">Vaivén</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="anim-ramp-rot-amt"><span>Grados</span><span class="label-unit">por loop / ±</span></label>
+                  <input type="number" id="anim-ramp-rot-amt" class="form-input" min="-3600" max="3600" step="1" value="360">
+                </div>
+              </div>
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="anim-ramp-sine-cycles"><span>Vaivenes por loop</span></label>
+                  <input type="number" id="anim-ramp-sine-cycles" class="form-input" min="1" max="50" step="1" value="1">
+                </div>
+                <div class="form-group">
+                  <label for="anim-ramp-scope">Alcance</label>
+                  <select id="anim-ramp-scope" class="form-select">
+                    <option value="screen">Cada pantalla</option>
+                    <option value="canvas">Todo el lienzo</option>
+                  </select>
+                </div>
               </div>
             </div>
 

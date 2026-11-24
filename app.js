@@ -580,14 +580,22 @@
         csScope: "simultaneous",
         csOnlySelected: false,
         csInvert: false,
-        csSeed: 1
+        csSeed: 1,
+        rampPhaseMode: "shift",
+        rampPhaseCycles: 1,
+        rampPeriodMode: "off",
+        rampPeriodAmt: 50,
+        rampRotMode: "off",
+        rampRotAmt: 360,
+        rampSineCycles: 1,
+        rampScope: "screen"
       };
       const a = (state.settings && state.settings.animation) || {};
       const clamp = (v, d, min, max) => {
         const n = Number(v);
         return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d;
       };
-      const effect = ["sequence", "sequence_all", "strobe", "sequence_strobe", "random_sequence", "cell_sequence"].includes(a.effect)
+      const effect = ["sequence", "sequence_all", "strobe", "sequence_strobe", "random_sequence", "cell_sequence", "ramp_anim"].includes(a.effect)
         ? a.effect : def.effect;
       return {
         effect,
@@ -603,6 +611,14 @@
         csOnlySelected: a.csOnlySelected === true,
         csInvert: a.csInvert === true,
         csSeed: Math.floor(clamp(a.csSeed, def.csSeed, 0, 4294967295)),
+        rampPhaseMode: a.rampPhaseMode === "off" ? "off" : "shift",
+        rampPhaseCycles: clamp(a.rampPhaseCycles, def.rampPhaseCycles, -50, 50),
+        rampPeriodMode: a.rampPeriodMode === "sine" ? "sine" : "off",
+        rampPeriodAmt: clamp(a.rampPeriodAmt, def.rampPeriodAmt, 0, 95),
+        rampRotMode: ["off", "spin", "sine"].includes(a.rampRotMode) ? a.rampRotMode : "off",
+        rampRotAmt: clamp(a.rampRotAmt, def.rampRotAmt, -3600, 3600),
+        rampSineCycles: Math.round(clamp(a.rampSineCycles, def.rampSineCycles, 1, 50)),
+        rampScope: a.rampScope === "canvas" ? "canvas" : "screen",
         loopDuration: clamp(a.loopDuration, def.loopDuration, 0.5, 120),
         holdEnd: clamp(a.holdEnd, def.holdEnd, 0, 30),
         seqDelay: clamp(a.seqDelay, def.seqDelay, 0, 30),
@@ -777,6 +793,28 @@
       return a.loopDuration;
     },
 
+    /** Parámetros de la rampa en el instante t: parte de Ajustes → Degradado y anima fase, período y rotación. */
+    getRampAnimParams(a, t) {
+      a = a || this.getSettings();
+      const base = RampEngine.getParams();
+      const D = Math.max(0.001, a.loopDuration);
+      const tau = Math.max(0, Math.min(1, (Number(t) || 0) / D)); // el hold final queda en tau = 1
+      const sine = Math.sin(2 * Math.PI * a.rampSineCycles * tau);
+      let phase = base.phase;
+      let period = base.period;
+      let rotation = base.rotation;
+      if (a.rampPhaseMode === "shift") {
+        // Un "ciclo" = un período completo de la rampa (en Espejo, ida y vuelta): el loop cierra sin salto
+        phase = base.phase + base.period * a.rampPhaseCycles * tau * (base.repeat === "mirror" ? 2 : 1);
+      }
+      if (a.rampPeriodMode === "sine") {
+        period = Math.max(1, Math.min(1000, base.period * (1 + (a.rampPeriodAmt / 100) * sine)));
+      }
+      if (a.rampRotMode === "spin") rotation = base.rotation + a.rampRotAmt * tau;
+      else if (a.rampRotMode === "sine") rotation = base.rotation + a.rampRotAmt * sine;
+      return { rotation, period, phase };
+    },
+
     getOrderedActiveScreens() {
       return state.screens
         .map((s, idx) => ({ s, idx, order: Math.max(1, Math.round(Number(s.animOrder) || (idx + 1))) }))
@@ -806,7 +844,7 @@
       if (screen.animIncluded === false) return 1;
 
       const a = this.getSettings();
-      if (a.effect === "cell_sequence") return 1; // lo dibuja RenderEngine.renderCellSequence
+      if (a.effect === "cell_sequence" || a.effect === "ramp_anim") return 1; // lo dibuja RenderEngine
       const D = a.loopDuration;
       const totalFrames = Math.max(2, Math.round(D * this.FPS));
       // Hold del final: pasada la secuencia, se mantiene el último cuadro hasta que reinicia el loop
@@ -1029,8 +1067,8 @@
     },
 
     /** Geometría y paradas de color de la rampa para un rectángulo. */
-    build(x, y, w, h, color1, color2) {
-      const p = this.getParams();
+    build(x, y, w, h, color1, color2, ov) {
+      const p = ov ? { ...this.getParams(), ...ov } : this.getParams();
       const dir = state.settings.gradientDirection;
       const P = p.period / 100;
       const F = p.phase / 100;
@@ -1149,6 +1187,18 @@
       // Efecto "Secuencia de celdas": solo se dibujan las celdas encendidas (resto negro)
       if (animate && AnimationEngine.getSettings().effect === "cell_sequence") {
         this.renderCellSequence(ctx, t, maskMode, showOverlays);
+        if (!maskMode) {
+          state.layers.forEach(layer => {
+            if (!layer.visible) return;
+            this.renderLayer(ctx, layer, showOverlays && layer.id === state.selectedLayerId);
+          });
+        }
+        return;
+      }
+
+      // Efecto "Rampa animada": cada pantalla se dibuja como rampa con fase/período/rotación animados
+      if (animate && AnimationEngine.getSettings().effect === "ramp_anim") {
+        this.renderRampAnim(ctx, t, maskMode, showOverlays);
         if (!maskMode) {
           state.layers.forEach(layer => {
             if (!layer.visible) return;
@@ -1677,6 +1727,51 @@
             ctx.lineWidth = prim ? 1.5 : 1;
             ctx.strokeRect(screen.x + 0.5, screen.y + 0.5, screen.widthPx - 1, screen.heightPx - 1);
           }
+        }
+      });
+    },
+
+    /**
+     * "Rampa animada": determinista en t. Cada pantalla se rellena con una rampa (color1 -> color2; en modo
+     * máscara, negro -> blanco) usando los parámetros animados. Alcance: cada pantalla o todo el lienzo.
+     */
+    renderRampAnim(ctx, t, maskMode, showOverlays) {
+      const a = AnimationEngine.getSettings();
+      const p = AnimationEngine.getRampAnimParams(a, t);
+      const W = ctx.canvas.width;
+      const H = ctx.canvas.height;
+      state.screens.forEach(screen => {
+        if (screen.visible === false) return;
+        const x = Math.round(screen.x);
+        const y = Math.round(screen.y);
+        const w = Math.round(screen.widthPx);
+        const h = Math.round(screen.heightPx);
+
+        if (screen.animIncluded === false) {
+          if (maskMode) { ctx.fillStyle = "#ffffff"; ctx.fillRect(x, y, w, h); }
+          else this.renderScreen(ctx, screen, showOverlays && state.selectedScreenIds.includes(screen.id), showOverlays && screen.id === state.selectedScreenId, 1);
+          return;
+        }
+
+        const c1 = maskMode ? "#000000" : screen.color1;
+        const c2 = maskMode ? "#ffffff" : screen.color2;
+        const ramp = a.rampScope === "canvas"
+          ? RampEngine.build(0, 0, W, H, c1, c2, p)
+          : RampEngine.build(x, y, w, h, c1, c2, p);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, w, h);
+        ctx.clip();
+        ctx.fillStyle = RampEngine.toCanvasGradient(ctx, ramp);
+        ctx.fillRect(x, y, w, h);
+        ctx.restore();
+
+        if (!maskMode && state.settings.showLabels) this.renderScreenLabels(ctx, screen);
+        if (showOverlays && !maskMode) {
+          const sel = state.selectedScreenIds.includes(screen.id);
+          ctx.strokeStyle = sel ? (screen.id === state.selectedScreenId ? "#ffffff" : "#cccccc") : "rgba(255, 255, 255, 0.35)";
+          ctx.lineWidth = sel ? 1.5 : 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
         }
       });
     },
@@ -4335,7 +4430,8 @@
       const delayGroup = document.getElementById("anim-seq-delay").closest(".form-group");
       if (delayGroup) delayGroup.classList.toggle("hidden", isRand);
 
-      document.getElementById("anim-seq-params").classList.toggle("hidden", a.effect === "strobe" || a.effect === "cell_sequence");
+      document.getElementById("anim-seq-params").classList.toggle("hidden", a.effect === "strobe" || a.effect === "cell_sequence" || a.effect === "ramp_anim");
+      this.updateRampAnimControls(a);
       this.updateCellSeqControls(a);
       document.getElementById("anim-seq-off-group").classList.toggle("hidden", a.effect !== "sequence");
       document.getElementById("anim-all-params").classList.toggle("hidden", a.effect !== "sequence_all");
@@ -4349,6 +4445,22 @@
         realEl.textContent = `Frecuencia real: ${meta.realFreq.toFixed(2)} Hz (${meta.cycles} ciclos)`;
       }
       this.syncAnimationPlaybackUI();
+    },
+
+    /** Controles de "Rampa animada": valores y visibilidad (solo con ese efecto elegido). */
+    updateRampAnimControls(a) {
+      const box = document.getElementById("anim-ramp-params");
+      if (!box) return;
+      box.classList.toggle("hidden", a.effect !== "ramp_anim");
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+      set("anim-ramp-phase-mode", a.rampPhaseMode);
+      set("anim-ramp-phase-cycles", a.rampPhaseCycles);
+      set("anim-ramp-period-mode", a.rampPeriodMode);
+      set("anim-ramp-period-amt", a.rampPeriodAmt);
+      set("anim-ramp-rot-mode", a.rampRotMode);
+      set("anim-ramp-rot-amt", a.rampRotAmt);
+      set("anim-ramp-sine-cycles", a.rampSineCycles);
+      set("anim-ramp-scope", a.rampScope);
     },
 
     /** Controles de "Secuencia de celdas": valores y visibilidad (solo con ese efecto elegido). */
@@ -4445,6 +4557,27 @@
           if (isNaN(v)) return;
           setAnim(key, Math.max(min, Math.min(max, v)), false);
           this.updateCellSeqInfo();
+        });
+      });
+      [
+        ["anim-ramp-phase-mode", "rampPhaseMode"], ["anim-ramp-period-mode", "rampPeriodMode"],
+        ["anim-ramp-rot-mode", "rampRotMode"], ["anim-ramp-scope", "rampScope"]
+      ].forEach(([id, key]) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener("change", (e) => setAnim(key, e.target.value, false));
+      });
+      [
+        ["anim-ramp-phase-cycles", "rampPhaseCycles", -50, 50],
+        ["anim-ramp-period-amt", "rampPeriodAmt", 0, 95],
+        ["anim-ramp-rot-amt", "rampRotAmt", -3600, 3600],
+        ["anim-ramp-sine-cycles", "rampSineCycles", 1, 50]
+      ].forEach(([id, key, min, max]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener("input", (e) => {
+          const v = parseFloat(e.target.value);
+          if (isNaN(v)) return;
+          setAnim(key, Math.max(min, Math.min(max, v)), false);
         });
       });
       document.getElementById("btn-cs-reshuffle").addEventListener("click", () => {
