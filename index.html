@@ -385,6 +385,35 @@
                   <option value="radial">Radial</option>
                 </select>
               </div>
+              <p class="small-text" style="margin:6px 0 4px;">Rampa</p>
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="opt-ramp-rotation"><span>Rotación</span><span class="label-unit">°</span></label>
+                  <input type="number" id="opt-ramp-rotation" class="form-input" min="-360" max="360" step="1" value="0">
+                </div>
+                <div class="form-group">
+                  <label for="opt-ramp-period"><span>Período</span><span class="label-unit">%</span></label>
+                  <input type="number" id="opt-ramp-period" class="form-input" min="1" max="1000" step="1" value="100">
+                </div>
+              </div>
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="opt-ramp-phase"><span>Fase</span><span class="label-unit">%</span></label>
+                  <input type="number" id="opt-ramp-phase" class="form-input" min="-1000" max="1000" step="1" value="0">
+                </div>
+                <div class="form-group">
+                  <label for="opt-ramp-repeat">Repetición</label>
+                  <select id="opt-ramp-repeat" class="form-select">
+                    <option value="repeat">Repetir</option>
+                    <option value="mirror">Espejo</option>
+                    <option value="hold">Mantener</option>
+                  </select>
+                </div>
+              </div>
+              <label class="setting-row">
+                <span>Flip (invertir rampa)</span>
+                <input type="checkbox" id="opt-ramp-flip">
+              </label>
               <label class="setting-row">
                 <span>Mostrar líneas de módulo</span>
                 <input type="checkbox" id="opt-show-module-lines" checked>
@@ -573,6 +602,11 @@
                 <label for="anim-loop-duration"><span>Duración loop</span><span class="label-unit">s</span></label>
                 <input type="number" id="anim-loop-duration" class="form-input" min="0.5" max="120" step="0.5" value="6">
               </div>
+            </div>
+
+            <div class="form-group">
+              <label for="anim-hold-end"><span>Hold al final</span><span class="label-unit">s (queda quieto antes de reiniciar)</span></label>
+              <input type="number" id="anim-hold-end" class="form-input" min="0" max="30" step="0.1" value="1">
             </div>
 
             <div id="anim-seq-params">

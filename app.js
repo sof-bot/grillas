@@ -189,6 +189,11 @@
       showSublabels: true,
       displayMode: "checker",
       gradientDirection: "horizontal",
+      gradientRotation: 0,
+      gradientPeriod: 100,
+      gradientPhase: 0,
+      gradientFlip: false,
+      gradientRepeat: "repeat",
       showModuleLines: true,
       gridLineWidth: 1,
       gridLineColor: "#ffffff",
@@ -551,6 +556,7 @@
       const def = {
         effect: "sequence",
         loopDuration: 6,
+        holdEnd: 1,
         seqDelay: 0.4,
         seqFade: 0.25,
         seqOffMode: "all",
@@ -598,6 +604,7 @@
         csInvert: a.csInvert === true,
         csSeed: Math.floor(clamp(a.csSeed, def.csSeed, 0, 4294967295)),
         loopDuration: clamp(a.loopDuration, def.loopDuration, 0.5, 120),
+        holdEnd: clamp(a.holdEnd, def.holdEnd, 0, 30),
         seqDelay: clamp(a.seqDelay, def.seqDelay, 0, 30),
         seqFade: clamp(a.seqFade, def.seqFade, 0, 30),
         seqOffMode: a.seqOffMode === "one_by_one" ? "one_by_one" : "all",
@@ -760,6 +767,12 @@
     /** Duración efectiva del loop (en "Secuencia de celdas" con velocidad fija depende de la cantidad de celdas). */
     getLoopDuration() {
       const a = this.getSettings();
+      return this.getSequenceDuration(a) + a.holdEnd;
+    },
+
+    /** Duración de la secuencia sola (sin el hold del final). */
+    getSequenceDuration(a) {
+      a = a || this.getSettings();
       if (a.effect === "cell_sequence" && a.csTimeMode === "cps") return this.getCellSeqPlan(a).total;
       return a.loopDuration;
     },
@@ -796,7 +809,9 @@
       if (a.effect === "cell_sequence") return 1; // lo dibuja RenderEngine.renderCellSequence
       const D = a.loopDuration;
       const totalFrames = Math.max(2, Math.round(D * this.FPS));
-      const frame = ((Math.floor((Number(t) || 0) * this.FPS + 1e-9) % totalFrames) + totalFrames) % totalFrames;
+      // Hold del final: pasada la secuencia, se mantiene el último cuadro hasta que reinicia el loop
+      const rawFrame = Math.floor((Number(t) || 0) * this.FPS + 1e-9);
+      const frame = rawFrame >= totalFrames ? totalFrames - 1 : ((rawFrame % totalFrames) + totalFrames) % totalFrames;
       const qt = (frame / totalFrames) * D;
 
       const ordered = this.getOrderedActiveScreens();
@@ -963,6 +978,105 @@
   /* ===========================================================================
    * 5. RENDER ENGINE (Dibujo de Pantallas, Capas Gráficas y Manijas)
    * =========================================================================== */
+  /* ===========================================================================
+   * RAMPAS DE DEGRADADO (rotación, período, fase, flip, repetición)
+   * Una sola definición de la rampa sirve para el lienzo, el SVG y el PDF.
+   * =========================================================================== */
+  const RampEngine = {
+    getParams() {
+      const s = state.settings || {};
+      const num = (v, d, min, max) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d;
+      };
+      return {
+        rotation: num(s.gradientRotation, 0, -360, 360),
+        period: num(s.gradientPeriod, 100, 1, 1000),
+        phase: num(s.gradientPhase, 0, -1000, 1000),
+        flip: s.gradientFlip === true,
+        repeat: ["repeat", "mirror", "hold"].includes(s.gradientRepeat) ? s.gradientRepeat : "repeat"
+      };
+    },
+
+    parseColor(c) {
+      const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(c || "").trim());
+      if (!m) return null;
+      let h = m[1];
+      if (h.length === 3) h = h.split("").map(ch => ch + ch).join("");
+      return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    },
+
+    mix(c1, c2, v) {
+      if (v <= 0) return c1;
+      if (v >= 1) return c2;
+      const a = this.parseColor(c1);
+      const b = this.parseColor(c2);
+      if (!a || !b) return v < 0.5 ? c1 : c2;
+      const h = (i) => Math.round(a[i] + (b[i] - a[i]) * v).toString(16).padStart(2, "0");
+      return `#${h(0)}${h(1)}${h(2)}`;
+    },
+
+    /** Valor 0..1 de la rampa en la posición u (0..1 sobre el eje). side = -1/+1 evalúa justo antes/después de un salto. */
+    valueAt(u, p, side) {
+      const P = p.period / 100;
+      const F = p.phase / 100;
+      const s = (u - F) / P + (side || 0) * 1e-9;
+      let f;
+      if (p.repeat === "hold") f = Math.max(0, Math.min(1, s));
+      else if (p.repeat === "mirror") { const m = ((s % 2) + 2) % 2; f = m <= 1 ? m : 2 - m; }
+      else f = s - Math.floor(s);
+      return p.flip ? 1 - f : f;
+    },
+
+    /** Geometría y paradas de color de la rampa para un rectángulo. */
+    build(x, y, w, h, color1, color2) {
+      const p = this.getParams();
+      const dir = state.settings.gradientDirection;
+      const P = p.period / 100;
+      const F = p.phase / 100;
+
+      // Puntos de quiebre (saltos o cambios de pendiente) dentro del eje
+      const breaks = [];
+      if (p.repeat === "hold") {
+        [0, 1].forEach(k => { const u = F + k * P; if (u > 0 && u < 1) breaks.push(u); });
+      } else {
+        const k0 = Math.ceil((0 - F) / P);
+        for (let k = k0, n = 0; n < 500; k++, n++) {
+          const u = F + k * P;
+          if (u >= 1) break;
+          if (u > 0) breaks.push(u);
+        }
+      }
+      const stops = [];
+      const add = (o, v) => stops.push({ o: Math.max(0, Math.min(1, o)), c: this.mix(color1, color2, v) });
+      add(0, this.valueAt(0, p, 1));
+      breaks.forEach(b => { add(b, this.valueAt(b, p, -1)); add(b, this.valueAt(b, p, 1)); });
+      add(1, this.valueAt(1, p, -1));
+
+      if (dir === "radial") {
+        return { type: "radial", cx: x + w / 2, cy: y + h / 2, r: Math.hypot(w, h) / 2, stops };
+      }
+      let base = 0;
+      if (dir === "vertical") base = 90;
+      else if (dir === "diagonal") base = Math.atan2(h, w) * 180 / Math.PI;
+      const th = (base + p.rotation) * Math.PI / 180;
+      const dx = Math.cos(th);
+      const dy = Math.sin(th);
+      const half = (Math.abs(w * dx) + Math.abs(h * dy)) / 2;
+      const cx = x + w / 2;
+      const cy = y + h / 2;
+      return { type: "linear", x0: cx - dx * half, y0: cy - dy * half, x1: cx + dx * half, y1: cy + dy * half, stops };
+    },
+
+    toCanvasGradient(ctx, r) {
+      const g = r.type === "radial"
+        ? ctx.createRadialGradient(r.cx, r.cy, 0, r.cx, r.cy, Math.max(0.0001, r.r))
+        : ctx.createLinearGradient(r.x0, r.y0, r.x1, r.y1);
+      r.stops.forEach(s => g.addColorStop(s.o, s.c));
+      return g;
+    }
+  };
+
   const RenderEngine = {
     canvas: null,
     ctx: null,
@@ -1472,7 +1586,9 @@
       const a = AnimationEngine.getSettings();
       const plan = AnimationEngine.getCellSeqPlan(a);
       const total = plan.total;
-      const tt = (((Number(t) || 0) % total) + total) % total;
+      // Hold del final: pasada la secuencia se mantiene el último cuadro
+      const tRaw = Number(t) || 0;
+      const tt = tRaw >= total ? total - 1e-6 : Math.max(0, tRaw);
       const inPlan = new Set();
       plan.items.forEach(it => inPlan.add(it.screen));
 
@@ -1613,22 +1729,7 @@
         } else if (mode === "testcard") {
           this.renderTestCard(ctx, screen, cols, rows);
         } else {
-          const dir = state.settings.gradientDirection;
-          let grad;
-          if (dir === "vertical") {
-            grad = ctx.createLinearGradient(x, y, x, y + heightPx);
-          } else if (dir === "diagonal") {
-            grad = ctx.createLinearGradient(x, y, x + widthPx, y + heightPx);
-          } else if (dir === "radial") {
-            grad = ctx.createRadialGradient(
-              x + widthPx / 2, y + heightPx / 2, 0,
-              x + widthPx / 2, y + heightPx / 2, Math.hypot(widthPx, heightPx) / 2
-            );
-          } else {
-            grad = ctx.createLinearGradient(x, y, x + widthPx, y);
-          }
-          grad.addColorStop(0, color1);
-          grad.addColorStop(1, color2);
+          const grad = RampEngine.toCanvasGradient(ctx, RampEngine.build(x, y, widthPx, heightPx, color1, color2));
           ctx.fillStyle = grad;
           ctx.fillRect(x, y, widthPx, heightPx);
           if (state.settings.showModuleLines !== false) {
@@ -2746,6 +2847,11 @@
         display: {
           displayMode: state.settings.displayMode,
           gradientDirection: state.settings.gradientDirection,
+          gradientRotation: state.settings.gradientRotation,
+          gradientPeriod: state.settings.gradientPeriod,
+          gradientPhase: state.settings.gradientPhase,
+          gradientFlip: state.settings.gradientFlip,
+          gradientRepeat: state.settings.gradientRepeat,
           showModuleLines: state.settings.showModuleLines,
           gridLineWidth: state.settings.gridLineWidth,
           gridLineColor: state.settings.gridLineColor,
@@ -3886,6 +3992,14 @@
       if (!modeSel) return;
       modeSel.value = state.settings.displayMode || "checker";
       dirSel.value = state.settings.gradientDirection || "horizontal";
+      const rp = RampEngine.getParams();
+      const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+      setV("opt-ramp-rotation", rp.rotation);
+      setV("opt-ramp-period", rp.period);
+      setV("opt-ramp-phase", rp.phase);
+      setV("opt-ramp-repeat", rp.repeat);
+      const flipEl = document.getElementById("opt-ramp-flip");
+      if (flipEl) flipEl.checked = rp.flip;
       linesChk.checked = state.settings.showModuleLines !== false;
       box.classList.toggle("hidden", modeSel.value !== "gradient");
       const gridBox = document.getElementById("opt-grid-options");
@@ -3953,6 +4067,34 @@
       document.getElementById("opt-gradient-direction").addEventListener("change", (e) => {
         state.settings.gradientDirection = e.target.value;
         this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      const rampNum = [
+        ["opt-ramp-rotation", "gradientRotation", -360, 360],
+        ["opt-ramp-period", "gradientPeriod", 1, 1000],
+        ["opt-ramp-phase", "gradientPhase", -1000, 1000]
+      ];
+      rampNum.forEach(([id, key, min, max]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener("input", (e) => {
+          const v = parseFloat(e.target.value);
+          if (isNaN(v)) return;
+          state.settings[key] = Math.max(min, Math.min(max, v));
+          RenderEngine.render();
+          Persistence.saveAuto();
+        });
+      });
+      const rampRep = document.getElementById("opt-ramp-repeat");
+      if (rampRep) rampRep.addEventListener("change", (e) => {
+        state.settings.gradientRepeat = e.target.value;
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      const rampFlip = document.getElementById("opt-ramp-flip");
+      if (rampFlip) rampFlip.addEventListener("change", (e) => {
+        state.settings.gradientFlip = e.target.checked;
         RenderEngine.render();
         Persistence.saveAuto();
       });
@@ -4175,6 +4317,7 @@
       const a = AnimationEngine.getSettings();
       effEl.value = a.effect;
       document.getElementById("anim-loop-duration").value = a.loopDuration;
+      document.getElementById("anim-hold-end").value = a.holdEnd;
       document.getElementById("anim-seq-delay").value = a.seqDelay;
       document.getElementById("anim-seq-fade").value = a.seqFade;
       document.getElementById("anim-seq-off-mode").value = a.seqOffMode;
@@ -4330,6 +4473,7 @@
       });
       [
         ["anim-loop-duration", "loopDuration", 0.5, 120],
+        ["anim-hold-end", "holdEnd", 0, 30],
         ["anim-seq-delay", "seqDelay", 0, 30],
         ["anim-seq-fade", "seqFade", 0, 30],
         ["anim-all-duration", "allOnDuration", 0, 60],
@@ -5851,14 +5995,13 @@
           }
           out.push(`    </g>`);
         } else {
-          const dir = state.settings.gradientDirection;
           const gradId = uniqueId(`${gid}_grad`, "grad");
-          if (dir === "radial") {
-            defs.push(`    <radialGradient id="${gradId}" gradientUnits="userSpaceOnUse" cx="${num(x + widthPx / 2)}" cy="${num(y + heightPx / 2)}" r="${num(Math.hypot(widthPx, heightPx) / 2)}"><stop offset="0" stop-color="${esc(color1)}"/><stop offset="1" stop-color="${esc(color2)}"/></radialGradient>`);
+          const ramp = RampEngine.build(x, y, widthPx, heightPx, color1, color2);
+          const stopsSvg = ramp.stops.map(s => `<stop offset="${Number(s.o.toFixed(6))}" stop-color="${esc(s.c)}"/>`).join("");
+          if (ramp.type === "radial") {
+            defs.push(`    <radialGradient id="${gradId}" gradientUnits="userSpaceOnUse" cx="${num(ramp.cx)}" cy="${num(ramp.cy)}" r="${num(ramp.r)}">${stopsSvg}</radialGradient>`);
           } else {
-            const x2 = dir === "vertical" ? x : x + widthPx;
-            const y2 = dir === "horizontal" ? y : y + heightPx;
-            defs.push(`    <linearGradient id="${gradId}" gradientUnits="userSpaceOnUse" x1="${num(x)}" y1="${num(y)}" x2="${num(x2)}" y2="${num(y2)}"><stop offset="0" stop-color="${esc(color1)}"/><stop offset="1" stop-color="${esc(color2)}"/></linearGradient>`);
+            defs.push(`    <linearGradient id="${gradId}" gradientUnits="userSpaceOnUse" x1="${num(ramp.x0)}" y1="${num(ramp.y0)}" x2="${num(ramp.x1)}" y2="${num(ramp.y1)}">${stopsSvg}</linearGradient>`);
           }
           out.push(`    <rect id="${gid}_fondo" x="${num(x)}" y="${num(y)}" width="${num(widthPx)}" height="${num(heightPx)}" fill="url(#${gradId})"/>`);
           if (state.settings.showModuleLines !== false) {
