@@ -23,6 +23,12 @@
   const STORAGE_KEY = "led_grid_mapper_project_v1";
   const FONT_MAIN = 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif';
 
+  /** Texto de tamaño de la etiqueta: px y medidas en metros (ej. "3072×1280 px (12 × 5 m)"). */
+  const formatScreenSizeLine = (screen, widthPx, heightPx) => {
+    const fmt = (v) => (Number(v) || 0).toLocaleString("es-AR", { maximumFractionDigits: 2 });
+    return `${widthPx}×${heightPx} px (${fmt(screen.widthM)} × ${fmt(screen.heightM)} m)`;
+  };
+
   const DEFAULT_LOCATIONS = [
     "Central",
     "Izquierda",
@@ -1697,7 +1703,7 @@
           maxW = Math.max(
             maxW,
             ctx.measureText(`${location} • P${pt}`).width,
-            ctx.measureText(`${widthPx}×${heightPx} px (${cols}×${rows} mod)`).width
+            ctx.measureText(formatScreenSizeLine(screen, widthPx, heightPx)).width
           );
           bottom = centerY + fontSize * 0.35 + subFs * 1.35 + subFs / 2;
           ctx.font = `${fontWeight} ${fontSize}px ${FONT_MAIN}`;
@@ -1723,7 +1729,7 @@
 
         const pitchText = screen.pitchReal ? `${screen.pitchReal.toFixed(3)} mm` : `${screen.pitch} mm`;
         const line1 = `${location} • P${pitchText}`;
-        const line2 = `${widthPx}×${heightPx} px (${cols}×${rows} mod)`;
+        const line2 = formatScreenSizeLine(screen, widthPx, heightPx);
 
         ctx.fillText(line1, centerX, centerY + fontSize * 0.35);
         ctx.fillText(line2, centerX, centerY + fontSize * 0.35 + subFontSize * 1.35);
@@ -5887,7 +5893,7 @@
             const subFont = Math.max(10, Math.floor(fontSize * 0.38));
             const pitchText = screen.pitchReal ? `${screen.pitchReal.toFixed(3)} mm` : `${screen.pitch} mm`;
             const line1 = `${screen.location} • P${pitchText}`;
-            const line2 = `${widthPx}×${heightPx} px (${physCols}×${physRows} mod)`;
+            const line2 = formatScreenSizeLine(screen, widthPx, heightPx);
             out.push(`    <text id="${gid}_info1" x="${num(centerX)}" y="${num(centerY + fontSize * 0.35)}" font-size="${subFont}" font-weight="300" fill-opacity="0.8" ${common}>${esc(line1)}</text>`);
             out.push(`    <text id="${gid}_info2" x="${num(centerX)}" y="${num(centerY + fontSize * 0.35 + subFont * 1.35)}" font-size="${subFont}" font-weight="300" fill-opacity="0.8" ${common}>${esc(line2)}</text>`);
           }
