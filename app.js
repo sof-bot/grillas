@@ -1790,15 +1790,24 @@
       ctx.restore();
     },
 
-    /** Marco ajedrezado blanco/negro en el borde de la pantalla (una celda de grosor, cierra en las esquinas). */
+    /** Marco ajedrezado blanco/negro en el borde de la pantalla: celdas cuadradas de una fila de grosor. */
     getFrameCells(tc, L) {
-      const size = tc.frameSize;
-      const nx = Math.max(2, Math.round(L.sw / size)), ny = Math.max(2, Math.round(L.sh / size));
-      const xs = (i) => Math.round(L.sx + i * L.sw / nx), ys = (j) => Math.round(L.sy + j * L.sh / ny);
+      const { s, exact } = this.getFrameGeom(tc, L);
+      const W = Math.round(L.sw), H = Math.round(L.sh), X = L.sx, Y = L.sy;
       const cells = [];
-      const add = (i, j) => cells.push({ x: xs(i), y: ys(j), w2: xs(i + 1) - xs(i), h: ys(j + 1) - ys(j), w: (i + j) % 2 === 0 });
-      for (let i = 0; i < nx; i++) { add(i, 0); add(i, ny - 1); }
-      for (let j = 1; j < ny - 1; j++) { add(0, j); add(nx - 1, j); }
+      const add = (x, y, w, h, white) => cells.push({ x, y, w2: w, h, w: white });
+      const nx = Math.ceil(W / s), ny = Math.ceil(H / s);
+      for (let i = 0; i < nx; i++) {
+        const w = Math.min(s, W - i * s);
+        add(X + i * s, Y, w, s, i % 2 === 0);
+        add(X + i * s, Y + H - s, w, s, (i + (exact ? ny - 1 : 0)) % 2 === 0);
+      }
+      for (let j = 1; j < ny - 1; j++) {
+        const h = Math.min(s, H - j * s - (exact ? 0 : s));
+        if (h <= 0) continue;
+        add(X, Y + j * s, s, h, j % 2 === 0);
+        add(X + W - s, Y + j * s, s, h, (j + (exact ? nx - 1 : 0)) % 2 === 0);
+      }
       return cells;
     },
 
@@ -1878,11 +1887,25 @@
     /** Área útil para texto: si hay marco ajedrezado, se mide desde su borde interior. */
     insetLayout(tc, L) {
       if (!tc.frame) return L;
-      const nx = Math.max(2, Math.round(L.sw / tc.frameSize)), ny = Math.max(2, Math.round(L.sh / tc.frameSize));
-      const ix = Math.round(L.sw / nx), iy = Math.round(L.sh / ny);
-      return { ...L, sx: L.sx + ix, sy: L.sy + iy, sw: L.sw - 2 * ix, sh: L.sh - 2 * iy };
+      const s = this.getFrameGeom(tc, L).s;
+      return { ...L, sx: L.sx + s, sy: L.sy + s, sw: L.sw - 2 * s, sh: L.sh - 2 * s };
     },
 
+    /** Celda cuadrada del marco: el divisor común de ancho y alto más cercano al tamaño pedido (cierra exacto); si no hay uno razonable, celda exacta con las últimas cortadas. */
+    getFrameGeom(tc, L) {
+      const W = Math.round(L.sw), H = Math.round(L.sh), want = tc.frameSize;
+      const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+      const g = gcd(W, H);
+      let best = 0, bestErr = Infinity;
+      for (let d = 1; d <= g; d++) {
+        if (g % d) continue;
+        const e = Math.abs(Math.log(d / want));
+        if (e < bestErr) { bestErr = e; best = d; }
+      }
+      const exact = best >= want * 0.6 && best <= want * 1.6;
+      const s = Math.max(2, Math.min(exact ? best : want, Math.floor(Math.min(W, H) / 3)));
+      return { s, exact };
+    },
     getTextScaleLayout(tc, L, measure, u) {
       L = this.insetLayout(tc, L);
       const text = tc.textScaleText || "Aa";
