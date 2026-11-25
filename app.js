@@ -1357,6 +1357,24 @@
       return (g === "bw" || g === "gradient" || g === "testcard") ? g : "checker";
     },
 
+    /** Claves "clásicas" de test card: las únicas que respetamos de copias completas viejas guardadas por pantalla. */
+    TC_CLASSIC_KEYS: ["colorBar", "bwBar", "circle", "cross", "diagonals", "circleStroke", "circleFillEnabled", "circleFill",
+      "lineColor", "gradCircle", "gradCircleSizePct", "gradCirclePosX", "gradCirclePosY", "gradCircleInvert",
+      "gradCircleStrokeEnabled", "gradCircleStrokeColor", "gradCircleStrokeWidth"],
+
+    /**
+     * Ajustes propios de una pantalla. Los nuevos guardan solo lo que se cambió (marca _d).
+     * Las copias completas viejas (sin _d) congelaban también texto, relleno y animación: de esas solo se conservan las claves clásicas.
+     */
+    getOwnTestCard(screen) {
+      const o = screen && screen.testCard;
+      if (!o || typeof o !== "object") return {};
+      if (o._d) return o;
+      const r = {};
+      this.TC_CLASSIC_KEYS.forEach((k) => { if (k in o) r[k] = o[k]; });
+      return r;
+    },
+
     /** Ajustes efectivos de test card (propios de la pantalla o globales). */
     getTestCardSettings(screen) {
       const def = {
@@ -1387,6 +1405,7 @@
         textScaleSide: "left",
         textScalePos: "l",
         textScalePad: 8,
+        textScalePadX: 24,
         textScaleMargin: 0,
         textScaleSize1: 48,
         textScaleSize2: 24,
@@ -1403,13 +1422,16 @@
         bandText: "CLAUSTRO\nTEST PATTERN\nLED MAPPING",
         bandSep: "  //  ",
         bandSize: 32,
+        bandSizeMode: "auto",
+        bandPreset: "m",
+        bandFit: true,
         bandFont: "mono",
         bandPos: "b",
         bandBg: true,
         bandBgColor: "#000000"
       };
       const g = (state.settings && state.settings.testCard) || {};
-      const own = (screen && screen.testCard) || {};
+      const own = this.getOwnTestCard(screen);
       const src = { ...def, ...g, ...own };
       const gsrc = { ...def, ...g }; // la animación del test card es global: no la pisan los ajustes propios de cada pantalla
       const hex = (v, d) => (typeof v === "string" && /^#[0-9A-Fa-f]{6}$/.test(v)) ? v : d;
@@ -1445,6 +1467,7 @@
         textScalePos: (["tl", "t", "tr", "l", "c", "r", "bl", "b", "br"].includes(src.textScalePos)
           ? src.textScalePos : (src.textScaleSide === "right" ? "r" : "l")),
         textScalePad: Math.round(clamp(src.textScalePad, def.textScalePad, 0, 200)),
+        textScalePadX: Math.round(clamp(src.textScalePadX, def.textScalePadX, 0, 300)),
         textScaleMargin: Math.round(clamp(src.textScaleMargin, def.textScaleMargin, 0, 500)),
         textScaleSize1: Math.round(clamp(src.textScaleSize1, def.textScaleSize1, 2, 600)),
         textScaleSize2: Math.round(clamp(src.textScaleSize2, def.textScaleSize2, 2, 600)),
@@ -1459,6 +1482,9 @@
         bandText: (typeof src.bandText === "string" ? src.bandText : def.bandText).slice(0, 600),
         bandSep: (typeof src.bandSep === "string" ? src.bandSep : def.bandSep).slice(0, 12),
         bandSize: Math.round(clamp(src.bandSize, def.bandSize, 4, 600)),
+        bandSizeMode: src.bandSizeMode === "px" ? "px" : "auto",
+        bandPreset: (src.bandPreset === "s" || src.bandPreset === "l") ? src.bandPreset : "m",
+        bandFit: src.bandFit !== false,
         bandFont: src.bandFont === "sans" ? "sans" : "mono",
         bandPos: (src.bandPos === "t" || src.bandPos === "m") ? src.bandPos : "b",
         bandBg: src.bandBg !== false,
@@ -1834,6 +1860,7 @@
       const cyc = tc.tcTextCycles;
       const sizes = base.map((sz) => Math.max(2, Math.round(sz)));
       const pad = tc.textScalePad;
+      const padX = tc.textScalePadX;
       const margin = tc.textScaleMargin;
       const P = tc.textScalePos;
       const row = P.startsWith("t") ? "t" : (P.startsWith("b") ? "b" : "m");
@@ -1847,10 +1874,10 @@
         yy += lh;
         return ln;
       });
-      const W = Math.round(wMax + 2 * pad);
+      const W = Math.round(wMax + 2 * padX);
       const H = yy + pad;
       lines.forEach((ln) => {
-        ln.x = col === "l" ? pad : (col === "r" ? Math.round(pad + wMax - ln.w) : Math.round(pad + (wMax - ln.w) / 2));
+        ln.x = col === "l" ? padX : (col === "r" ? Math.round(padX + wMax - ln.w) : Math.round(padX + (wMax - ln.w) / 2));
       });
       if (mode === "typing" && cyc !== 0) {
         // Efecto de tipeo: escribe cada línea en orden, mantiene, y borra. El tamaño del bloque no cambia.
@@ -1888,10 +1915,24 @@
 
     /** Geometría de la franja de texto (ancho completo de la pantalla). */
     getBandLayout(tc, L) {
-      const size = tc.bandSize, pad = tc.textScalePad, margin = tc.textScaleMargin;
+      const pad = tc.textScalePad, padX = tc.textScalePadX, margin = tc.textScaleMargin;
+      // Tamaño: preset relativo al ancho de cada pantalla (chico/mediano/grande) o px fijos
+      let size = tc.bandSizeMode === "px"
+        ? tc.bandSize
+        : (tc.bandPreset === "s" ? 32 : Math.round(L.sw * (tc.bandPreset === "l" ? 0.07 : 0.045)));
+      // Ajustar al ancho: que el mensaje más largo entre completo en la pantalla
+      if (tc.bandFit) {
+        const mc = this._bandMC || (this._bandMC = document.createElement("canvas").getContext("2d"));
+        mc.font = `700 100px ${tc.bandFont === "sans" ? FONT_MAIN : FONT_MONO}`;
+        let w100 = 0;
+        for (const m of this.getBandMessages(tc)) w100 = Math.max(w100, mc.measureText(m).width);
+        const avail = L.sw - 2 * padX;
+        if (w100 > 0 && avail > 0) size = Math.min(size, Math.floor(avail / w100 * 100));
+      }
+      size = Math.max(6, size);
       const h = Math.round(size * 1.15) + 2 * pad;
       const y = tc.bandPos === "t" ? L.sy + margin : (tc.bandPos === "m" ? Math.round(L.cy - h / 2) : L.sy + L.sh - h - margin);
-      return { x: L.sx, y, w: L.sw, h, size, pad };
+      return { x: L.sx, y, w: L.sw, h, size, pad, padX };
     },
 
     /**
@@ -1921,7 +1962,7 @@
       if (mode === "slide" && cyc !== 0) {
         const unit = msgs.join(tc.bandSep) + tc.bandSep;
         const uw = Math.max(1, ctx.measureText(unit).width);
-        const x0 = B.x + B.pad - frac(cyc * u) * uw;
+        const x0 = B.x + B.padX - frac(cyc * u) * uw;
         for (let x = x0 - uw; x < B.x + B.w; x += uw) ctx.fillText(unit, Math.round(x), ty);
       } else if (mode === "typing" && cyc !== 0) {
         const f = frac(Math.abs(cyc) * u);
@@ -1935,13 +1976,13 @@
         else if (g < 0.9) prog = 1;
         else prog = 1 - (g - 0.9) / 0.1;
         const str = msg.slice(0, Math.round(prog * msg.length));
-        const x = B.x + B.pad;
+        const x = B.x + B.padX;
         if (str) ctx.fillText(str, x, ty);
         if (g < 0.6 || g >= 0.9 || Math.floor(g * 24) % 2 === 0) {
           ctx.fillRect(x + Math.round(ctx.measureText(str).width), Math.round(B.y + B.h / 2 - B.size * 0.5), Math.max(2, Math.round(B.size * 0.09)), B.size);
         }
       } else {
-        ctx.fillText(msgs.join(tc.bandSep), B.x + B.pad, ty);
+        ctx.fillText(msgs.join(tc.bandSep), B.x + B.padX, ty);
       }
       ctx.restore();
     },
@@ -4579,13 +4620,18 @@
           h += `<div class="form-group"><label>Textos (uno por línea; se repiten en loop)</label>
             <textarea class="form-input" rows="4" maxlength="600" data-tc="bandText" style="resize:vertical;font-family:inherit;">${A(tc.bandText)}</textarea></div>
           <div class="form-grid-3">
-            <div class="form-group"><label><span>Tamaño</span><span class="label-unit">px</span></label>${num("bandSize", tc.bandSize, 4, 600)}</div>
+            <div class="form-group"><label>Tamaño</label>${sel("bandSizeMode", tc.bandSizeMode, [["auto", "Según pantalla"], ["px", "Fijo (px)"]])}</div>
+            ${tc.bandSizeMode === "px"
+              ? `<div class="form-group"><label><span>Px</span><span class="label-unit">px</span></label>${num("bandSize", tc.bandSize, 4, 600)}</div>`
+              : `<div class="form-group"><label>Medida</label>${sel("bandPreset", tc.bandPreset, [["s", "Chico"], ["m", "Mediano"], ["l", "Grande"]])}</div>`}
             <div class="form-group"><label>Fuente</label>${sel("bandFont", tc.bandFont, [["mono", "Monoespaciada"], ["sans", "Sans"]])}</div>
             <div class="form-group"><label>Separador</label><input type="text" class="form-input" maxlength="12" data-tc="bandSep" value="${A(tc.bandSep)}"></div>
           </div>
+          <label class="setting-row"><span>Ajustar al ancho de cada pantalla</span>${chk("bandFit", tc.bandFit)}</label>
           <div class="form-grid-3">
             <div class="form-group"><label>Color</label><input type="color" class="color-input-native" data-tc="textScaleColor" value="${tc.textScaleColor}"></div>
-            <div class="form-group"><label><span>Relleno</span><span class="label-unit">px</span></label>${num("textScalePad", tc.textScalePad, 0, 200)}</div>
+            <div class="form-group"><label><span>Relleno vert.</span><span class="label-unit">px</span></label>${num("textScalePad", tc.textScalePad, 0, 200)}</div>
+            <div class="form-group"><label><span>Relleno lat.</span><span class="label-unit">px</span></label>${num("textScalePadX", tc.textScalePadX, 0, 300)}</div>
             <div class="form-group"><label><span>Margen</span><span class="label-unit">px</span></label>${num("textScaleMargin", tc.textScaleMargin, 0, 500)}</div>
           </div>
           <div class="form-grid-3">
@@ -4602,7 +4648,8 @@
         </div>
         <div class="form-grid-3">
           <div class="form-group"><label>Color</label><input type="color" class="color-input-native" data-tc="textScaleColor" value="${tc.textScaleColor}"></div>
-          <div class="form-group"><label><span>Relleno</span><span class="label-unit">px</span></label>${num("textScalePad", tc.textScalePad, 0, 200)}</div>
+          <div class="form-group"><label><span>Relleno vert.</span><span class="label-unit">px</span></label>${num("textScalePad", tc.textScalePad, 0, 200)}</div>
+            <div class="form-group"><label><span>Relleno lat.</span><span class="label-unit">px</span></label>${num("textScalePadX", tc.textScalePadX, 0, 300)}</div>
           <div class="form-group"><label><span>Margen</span><span class="label-unit">px</span></label>${num("textScaleMargin", tc.textScaleMargin, 0, 500)}</div>
         </div>
         <label class="setting-row"><span>Fondo negro</span>${chk("textScaleBg", tc.textScaleBg)}</label>
@@ -5829,7 +5876,7 @@
       const scrTcBar = getEl("screen-tc-color-bar");
       if (scrTcBar) {
         const setScreenTc = (key, val) => {
-          screen.testCard = { ...(screen.testCard || {}), [key]: val };
+          screen.testCard = { ...RenderEngine.getOwnTestCard(screen), _d: 1, [key]: val };
           RenderEngine.render();
           Persistence.saveAuto();
         };
@@ -7028,7 +7075,7 @@
               defs.push(`    <clipPath id="${cId}"><rect x="${B.x}" y="${B.y}" width="${B.w}" height="${B.h}"/></clipPath>`);
               out.push(`      <g clip-path="url(#${cId})">`);
               if (tc.bandBg) out.push(`        <rect x="${B.x}" y="${B.y}" width="${B.w}" height="${B.h}" fill="${esc(tc.bandBgColor)}"/>`);
-              out.push(`        <text x="${B.x + B.pad}" y="${Math.round(B.y + B.h / 2 + B.size * 0.04)}" font-family="${fam}" font-weight="700" font-size="${B.size}" fill="${esc(tc.textScaleColor)}" dominant-baseline="middle" xml:space="preserve">${esc(RenderEngine.getBandMessages(tc).join(tc.bandSep))}</text>`);
+              out.push(`        <text x="${B.x + B.padX}" y="${Math.round(B.y + B.h / 2 + B.size * 0.04)}" font-family="${fam}" font-weight="700" font-size="${B.size}" fill="${esc(tc.textScaleColor)}" dominant-baseline="middle" xml:space="preserve">${esc(RenderEngine.getBandMessages(tc).join(tc.bandSep))}</text>`);
               out.push(`      </g>`);
             } else if (tc.textScale) {
               const T = RenderEngine.getTextScaleLayout(tc, L, (sz, text) => sz * 0.6 * text.length, null);
