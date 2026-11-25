@@ -22,6 +22,7 @@
    * =========================================================================== */
   const STORAGE_KEY = "led_grid_mapper_project_v1";
   const FONT_MAIN = 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif';
+  const FONT_MONO = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", "Courier New", monospace';
 
   /** Texto de tamaño de la etiqueta: px y medidas en metros (ej. "3072×1280 px (12 × 5 m)"). */
   const formatScreenSizeLine = (screen, widthPx, heightPx) => {
@@ -602,7 +603,7 @@
         const n = Number(v);
         return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d;
       };
-      const effect = ["sequence", "sequence_all", "strobe", "sequence_strobe", "random_sequence", "cell_sequence", "ramp_anim"].includes(a.effect)
+      const effect = ["sequence", "sequence_all", "strobe", "sequence_strobe", "random_sequence", "cell_sequence", "ramp_anim", "testcard"].includes(a.effect)
         ? a.effect : def.effect;
       return {
         effect,
@@ -877,7 +878,7 @@
       if (screen.animIncluded === false) return 1;
 
       const a = this.getSettings();
-      if (a.effect === "cell_sequence" || a.effect === "ramp_anim") return 1; // lo dibuja RenderEngine
+      if (a.effect === "cell_sequence" || a.effect === "ramp_anim" || a.effect === "testcard") return 1; // lo dibuja RenderEngine / test card
       const D = a.loopDuration;
       const totalFrames = Math.max(2, Math.round(D * this.FPS));
       // Hold del final: pasada la secuencia, se mantiene el último cuadro hasta que reinicia el loop
@@ -1223,6 +1224,11 @@
       const showOverlays = !!options.showOverlays;
       const maskMode = !!options.mask || state.settings.displayMode === "mask";
       const allowTransparent = !maskMode && (options.transparentBg !== undefined ? options.transparentBg : true);
+      // Posición normalizada dentro del loop (0..1) para animar el test card; null si no se anima
+      const loopD = AnimationEngine.getLoopDuration();
+      this.tcU = (animate && loopD > 0) ? t / loopD : null;
+      // Efecto "Test card": las pantallas quedan encendidas y el test card se anima siempre (sin secuencia)
+      this.tcForce = !!animate && AnimationEngine.getSettings().effect === "testcard";
 
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, w, h);
@@ -1370,11 +1376,42 @@
         gradCircleInvert: false,
         gradCircleStrokeEnabled: false,
         gradCircleStrokeColor: "#ffffff",
-        gradCircleStrokeWidth: 2
+        gradCircleStrokeWidth: 2,
+        customBar: false,
+        customBarPos: "bottom",
+        customBarMode: "gradient",
+        customBarCount: 3,
+        customBarColors: ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#00ffff", "#ff00ff", "#ffffff", "#000000"],
+        textScale: false,
+        textScaleText: "Claustro",
+        textScaleSide: "left",
+        textScalePos: "l",
+        textScalePad: 8,
+        textScaleMargin: 0,
+        textScaleSize1: 48,
+        textScaleSize2: 24,
+        textScaleSize3: 12,
+        textScaleColor: "#ffffff",
+        textScaleBg: true,
+        tcAnimate: false,
+        tcBarCycles: 1,
+        tcTextAnim: "typing",
+        tcTextCycles: 1,
+        gradShape: "sphere",
+        tcShapeCycles: 1,
+        textScaleMode: "sizes",
+        bandText: "CLAUSTRO\nTEST PATTERN\nLED MAPPING",
+        bandSep: "  //  ",
+        bandSize: 32,
+        bandFont: "mono",
+        bandPos: "b",
+        bandBg: true,
+        bandBgColor: "#000000"
       };
       const g = (state.settings && state.settings.testCard) || {};
       const own = (screen && screen.testCard) || {};
       const src = { ...def, ...g, ...own };
+      const gsrc = { ...def, ...g }; // la animación del test card es global: no la pisan los ajustes propios de cada pantalla
       const hex = (v, d) => (typeof v === "string" && /^#[0-9A-Fa-f]{6}$/.test(v)) ? v : d;
       const clamp = (v, d, min, max) => {
         const n = Number(v);
@@ -1397,7 +1434,37 @@
         gradCircleInvert: !!src.gradCircleInvert,
         gradCircleStrokeEnabled: !!src.gradCircleStrokeEnabled,
         gradCircleStrokeColor: hex(src.gradCircleStrokeColor, def.gradCircleStrokeColor),
-        gradCircleStrokeWidth: Math.round(clamp(src.gradCircleStrokeWidth, def.gradCircleStrokeWidth, 1, 20))
+        gradCircleStrokeWidth: Math.round(clamp(src.gradCircleStrokeWidth, def.gradCircleStrokeWidth, 1, 20)),
+        customBar: !!src.customBar,
+        customBarPos: src.customBarPos === "top" ? "top" : "bottom",
+        customBarMode: src.customBarMode === "blocks" ? "blocks" : "gradient",
+        customBarCount: Math.round(clamp(src.customBarCount, def.customBarCount, 2, 8)),
+        customBarColors: def.customBarColors.map((d, i) => hex(Array.isArray(src.customBarColors) ? src.customBarColors[i] : undefined, d)),
+        textScale: !!src.textScale,
+        textScaleText: ((typeof src.textScaleText === "string" && src.textScaleText !== "Aa 0123") ? src.textScaleText : def.textScaleText).slice(0, 24),
+        textScalePos: (["tl", "t", "tr", "l", "c", "r", "bl", "b", "br"].includes(src.textScalePos)
+          ? src.textScalePos : (src.textScaleSide === "right" ? "r" : "l")),
+        textScalePad: Math.round(clamp(src.textScalePad, def.textScalePad, 0, 200)),
+        textScaleMargin: Math.round(clamp(src.textScaleMargin, def.textScaleMargin, 0, 500)),
+        textScaleSize1: Math.round(clamp(src.textScaleSize1, def.textScaleSize1, 2, 600)),
+        textScaleSize2: Math.round(clamp(src.textScaleSize2, def.textScaleSize2, 2, 600)),
+        textScaleSize3: Math.round(clamp(src.textScaleSize3, def.textScaleSize3, 2, 600)),
+        textScaleColor: hex(src.textScaleColor, def.textScaleColor),
+        textScaleBg: src.textScaleBg !== false,
+        tcAnimate: !!gsrc.tcAnimate,
+        tcBarCycles: Math.round(clamp(gsrc.tcBarCycles, def.tcBarCycles, -16, 16)),
+        tcTextAnim: (gsrc.tcTextAnim === "off" || gsrc.tcTextAnim === "slide") ? gsrc.tcTextAnim : "typing",
+        tcTextCycles: Math.round(clamp(gsrc.tcTextCycles, def.tcTextCycles, -16, 16)),
+        textScaleMode: src.textScaleMode === "band" ? "band" : "sizes",
+        bandText: (typeof src.bandText === "string" ? src.bandText : def.bandText).slice(0, 600),
+        bandSep: (typeof src.bandSep === "string" ? src.bandSep : def.bandSep).slice(0, 12),
+        bandSize: Math.round(clamp(src.bandSize, def.bandSize, 4, 600)),
+        bandFont: src.bandFont === "sans" ? "sans" : "mono",
+        bandPos: (src.bandPos === "t" || src.bandPos === "m") ? src.bandPos : "b",
+        bandBg: src.bandBg !== false,
+        bandBgColor: hex(src.bandBgColor, def.bandBgColor),
+        gradShape: src.gradShape === "cube" ? "cube" : "sphere",
+        tcShapeCycles: Math.round(clamp(gsrc.tcShapeCycles, def.tcShapeCycles, -16, 16))
       };
     },
 
@@ -1437,7 +1504,11 @@
       const cy = Math.round(sy + sh / 2);
       const maxR = Math.max(1, Math.floor((Math.min(sw, sh) - strokeW) / 2) - 1);
       const r = Math.min(maxR, Math.max(1, Math.round(sh * 0.35)));
-      return { sx, sy, sw, sh, strokeW, barX, barW, barH, topBarY, botBarY, cx, cy, r };
+      const cbH = Math.max(2, Math.round(sh * 0.10));
+      const clampY = (v) => Math.max(sy + 1, Math.min(sy + sh - cbH - 1, v));
+      const cbTopY = clampY(Math.round(sy + sh * 0.09 - cbH / 2));
+      const cbBotY = clampY(Math.round(sy + sh * 0.91 - cbH / 2));
+      return { sx, sy, sw, sh, strokeW, barX, barW, barH, topBarY, botBarY, cx, cy, r, cbH, cbTopY, cbBotY };
     },
 
     /** Estilo efectivo de la grilla: valores propios de la pantalla o globales. */
@@ -1577,6 +1648,7 @@
     renderTestCard(ctx, screen, cols, rows) {
       this.drawGridBackground(ctx, screen, cols, rows);
       const tc = this.getTestCardSettings(screen);
+      if (this.tcForce) tc.tcAnimate = true;
       const L = this.getTestCardLayout(screen);
 
       ctx.save();
@@ -1584,20 +1656,20 @@
       ctx.rect(L.sx, L.sy, L.sw, L.sh);
       ctx.clip();
 
+      const tcU = (tc.tcAnimate && this.tcU !== null && this.tcU !== undefined) ? this.tcU : null;
+
       if (tc.colorBar) {
-        const g = ctx.createLinearGradient(L.barX, L.topBarY, L.barX + L.barW, L.topBarY);
-        const stops = ["#ff0000", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff"];
-        stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
-        ctx.fillStyle = g;
-        ctx.fillRect(L.barX, L.topBarY, L.barW, L.barH);
+        this.drawTcBar(ctx, L.barX, L.topBarY, L.barW, L.barH,
+          ["#ff0000", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#ff00ff"], "gradient", tcU, tc.tcBarCycles);
       }
 
       if (tc.bwBar) {
-        const g = ctx.createLinearGradient(L.barX, L.botBarY, L.barX + L.barW, L.botBarY);
-        g.addColorStop(0, "#ffffff");
-        g.addColorStop(1, "#000000");
-        ctx.fillStyle = g;
-        ctx.fillRect(L.barX, L.botBarY, L.barW, L.barH);
+        this.drawTcBar(ctx, L.barX, L.botBarY, L.barW, L.barH, ["#ffffff", "#000000"], "gradient", tcU, tc.tcBarCycles);
+      }
+
+      if (tc.customBar) {
+        this.drawTcBar(ctx, L.barX, tc.customBarPos === "top" ? L.cbTopY : L.cbBotY, L.barW, L.cbH,
+          tc.customBarColors.slice(0, tc.customBarCount), tc.customBarMode, tcU, tc.tcBarCycles);
       }
 
       if (tc.circle) {
@@ -1614,17 +1686,45 @@
 
       if (tc.gradCircle) {
         const gc = this.getGradCircleGeometry(tc, L);
-        const g = ctx.createRadialGradient(gc.cx, gc.cy, 0, gc.cx, gc.cy, gc.r);
-        g.addColorStop(0, tc.gradCircleInvert ? "#000000" : "#ffffff");
-        g.addColorStop(1, tc.gradCircleInvert ? "#ffffff" : "#000000");
-        ctx.beginPath();
-        ctx.arc(gc.cx, gc.cy, gc.r, 0, Math.PI * 2);
-        ctx.fillStyle = g;
-        ctx.fill();
-        if (tc.gradCircleStrokeEnabled) {
-          ctx.strokeStyle = tc.gradCircleStrokeColor;
-          ctx.lineWidth = tc.gradCircleStrokeWidth;
-          ctx.stroke();
+        const shapeMoving = tcU !== null && tc.tcShapeCycles !== 0;
+        const th = shapeMoving ? 2 * Math.PI * tc.tcShapeCycles * tcU : 0;
+        if (tc.gradShape === "cube") {
+          const faces = this.getCubeFaces(gc, 35 + (shapeMoving ? (th * 180 / Math.PI) : 0), tc.gradCircleInvert);
+          ctx.lineJoin = "round";
+          faces.forEach((f) => {
+            ctx.beginPath();
+            f.pts.forEach((pt, i) => (i ? ctx.lineTo(pt[0], pt[1]) : ctx.moveTo(pt[0], pt[1])));
+            ctx.closePath();
+            ctx.fillStyle = `rgb(${f.g},${f.g},${f.g})`;
+            ctx.fill();
+            ctx.strokeStyle = ctx.fillStyle; // evita costuras entre caras
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            if (tc.gradCircleStrokeEnabled) {
+              ctx.strokeStyle = tc.gradCircleStrokeColor;
+              ctx.lineWidth = tc.gradCircleStrokeWidth;
+              ctx.stroke();
+            }
+          });
+        } else {
+          // Esfera: la luz (punto de brillo) orbita; al pasar por detrás se apaga
+          const m = shapeMoving ? 0.22 + 0.78 * Math.max(0, Math.min(1, 0.6 + 0.6 * Math.cos(th))) : 1;
+          const fx = gc.cx + (shapeMoving ? gc.r * 0.9 * Math.sin(th) : 0);
+          const v = Math.round(255 * m);
+          const inner = tc.gradCircleInvert ? 255 - v : v;
+          const outer = tc.gradCircleInvert ? 255 : 0;
+          const g = ctx.createRadialGradient(fx, gc.cy, 0, gc.cx, gc.cy, gc.r);
+          g.addColorStop(0, `rgb(${inner},${inner},${inner})`);
+          g.addColorStop(1, `rgb(${outer},${outer},${outer})`);
+          ctx.beginPath();
+          ctx.arc(gc.cx, gc.cy, gc.r, 0, Math.PI * 2);
+          ctx.fillStyle = g;
+          ctx.fill();
+          if (tc.gradCircleStrokeEnabled) {
+            ctx.strokeStyle = tc.gradCircleStrokeColor;
+            ctx.lineWidth = tc.gradCircleStrokeWidth;
+            ctx.stroke();
+          }
         }
       }
 
@@ -1646,6 +1746,228 @@
         ctx.stroke();
       }
 
+      if (tc.textScale) {
+        if (tc.textScaleMode === "band") this.drawBand(ctx, tc, L, tcU);
+        else this.drawTextScale(ctx, tc, L, tcU);
+      }
+
+      ctx.restore();
+    },
+
+    /** Caras visibles de un cubo girado (proyección ortogonal) con luz fija; devuelve polígonos y gris de cada cara. */
+    getCubeFaces(gc, yawDeg, invert) {
+      const s = gc.r * 0.56;
+      const yaw = yawDeg * Math.PI / 180, pitch = 28 * Math.PI / 180;
+      const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+      const rot = (x, y, z) => {
+        const x1 = x * cyw + z * syw;
+        const z1 = -x * syw + z * cyw;
+        return [x1, y * cp - z1 * sp, y * sp + z1 * cp];
+      };
+      const faces = [
+        { n: [0, 0, 1], v: [[-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]] },
+        { n: [0, 0, -1], v: [[1, -1, -1], [-1, -1, -1], [-1, 1, -1], [1, 1, -1]] },
+        { n: [1, 0, 0], v: [[1, -1, 1], [1, -1, -1], [1, 1, -1], [1, 1, 1]] },
+        { n: [-1, 0, 0], v: [[-1, -1, -1], [-1, -1, 1], [-1, 1, 1], [-1, 1, -1]] },
+        { n: [0, 1, 0], v: [[-1, 1, 1], [1, 1, 1], [1, 1, -1], [-1, 1, -1]] },
+        { n: [0, -1, 0], v: [[-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1]] }
+      ];
+      const Lr = Math.hypot(-0.35, 0.55, 0.76);
+      const Lv = [-0.35 / Lr, 0.55 / Lr, 0.76 / Lr];
+      const out = [];
+      faces.forEach((f) => {
+        const n = rot(f.n[0], f.n[1], f.n[2]);
+        if (n[2] <= 0.001) return;
+        const I = 0.08 + 0.92 * Math.max(0, n[0] * Lv[0] + n[1] * Lv[1] + n[2] * Lv[2]);
+        let g = Math.round(255 * I);
+        if (invert) g = 255 - g;
+        out.push({
+          g,
+          pts: f.v.map((v) => { const q = rot(v[0], v[1], v[2]); return [gc.cx + q[0] * s, gc.cy - q[1] * s]; })
+        });
+      });
+      return out;
+    },
+
+    /**
+     * Barra de colores del test card. Estática: degradado (o bloques) de los colores dados.
+     * Animada (u = posición 0..1 en el loop): el patrón corre cíclicamente; cycles = vueltas por loop (entero, signo = sentido).
+     */
+    drawTcBar(ctx, x, y, w, h, colors, mode, u, cycles) {
+      const n = colors.length;
+      if (n < 1 || w < 1 || h < 1) return;
+      const moving = u !== null && u !== undefined && cycles !== 0;
+      const paint = (x0) => {
+        if (mode === "blocks") {
+          const bw = w / n;
+          for (let i = 0; i < n; i++) {
+            const bx = Math.round(x0 + i * bw), bx2 = Math.round(x0 + (i + 1) * bw);
+            ctx.fillStyle = colors[i];
+            ctx.fillRect(bx, y, bx2 - bx, h);
+          }
+        } else {
+          const cols = moving ? colors.concat([colors[0]]) : colors;
+          const g = ctx.createLinearGradient(x0, y, x0 + w, y);
+          cols.forEach((c, i) => g.addColorStop(cols.length > 1 ? i / (cols.length - 1) : 0, c));
+          ctx.fillStyle = g;
+          const a = Math.round(x0);
+          ctx.fillRect(a, y, Math.round(x0 + w) - a, h);
+        }
+      };
+      if (!moving) { paint(x); return; }
+      const f = (((cycles * u) % 1) + 1) % 1;
+      const shift = f * w;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, w, h);
+      ctx.clip();
+      paint(x + shift - w);
+      paint(x + shift);
+      ctx.restore();
+    },
+
+    /** Geometría del bloque de texto en 3 tamaños. measure(sz, text) devuelve el ancho; u = posición 0..1 en el loop (o null). */
+    getTextScaleLayout(tc, L, measure, u) {
+      const text = tc.textScaleText || "Aa";
+      const base = [tc.textScaleSize1, tc.textScaleSize2, tc.textScaleSize3];
+      const mode = (u !== null && u !== undefined && tc.tcAnimate) ? tc.tcTextAnim : "off";
+      const cyc = tc.tcTextCycles;
+      const sizes = base.map((sz) => Math.max(2, Math.round(sz)));
+      const pad = tc.textScalePad;
+      const margin = tc.textScaleMargin;
+      const P = tc.textScalePos;
+      const row = P.startsWith("t") ? "t" : (P.startsWith("b") ? "b" : "m");
+      const col = P.endsWith("l") ? "l" : (P.endsWith("r") ? "r" : "c");
+      let wMax = 0, yy = pad;
+      const lines = sizes.map((sz) => {
+        const lh = Math.round(sz * 1.15);
+        const w = measure(sz, text);
+        wMax = Math.max(wMax, w);
+        const ln = { sz, lh, w, y: yy, x: 0, n: text.length, cur: false };
+        yy += lh;
+        return ln;
+      });
+      const W = Math.round(wMax + 2 * pad);
+      const H = yy + pad;
+      lines.forEach((ln) => {
+        ln.x = col === "l" ? pad : (col === "r" ? Math.round(pad + wMax - ln.w) : Math.round(pad + (wMax - ln.w) / 2));
+      });
+      if (mode === "typing" && cyc !== 0) {
+        // Efecto de tipeo: escribe cada línea en orden, mantiene, y borra. El tamaño del bloque no cambia.
+        const f = (((Math.abs(cyc) * u) % 1) + 1) % 1;
+        const len = text.length, nl = lines.length;
+        let active = nl - 1;
+        lines.forEach((ln, i) => {
+          let prog;
+          if (f < 0.6) {
+            const tt = (f / 0.6) * nl;
+            prog = Math.max(0, Math.min(1, tt - i));
+            if (tt >= i && tt < i + 1) active = i;
+          } else if (f < 0.9) prog = 1;
+          else prog = 1 - (f - 0.9) / 0.1;
+          ln.n = Math.round(prog * len);
+        });
+        if (f < 0.6 || f >= 0.9 || Math.floor(f * 24) % 2 === 0) lines[active].cur = true;
+      }
+      let x;
+      if (mode === "slide" && cyc !== 0) {
+        const f = (((cyc * u) % 1) + 1) % 1;
+        x = Math.round(L.sx - W + f * (L.sw + W));
+      } else if (col === "l") x = L.sx + margin;
+      else if (col === "r") x = L.sx + L.sw - W - margin;
+      else x = Math.round(L.sx + (L.sw - W) / 2);
+      const y = row === "t" ? L.sy + margin : (row === "b" ? L.sy + L.sh - H - margin : Math.round(L.cy - H / 2));
+      return { text, lines, W, H, pad, x, y };
+    },
+
+    /** Mensajes de la franja (uno por línea, sin vacíos). */
+    getBandMessages(tc) {
+      const m = String(tc.bandText || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+      return m.length ? m : ["CLAUSTRO"];
+    },
+
+    /** Geometría de la franja de texto (ancho completo de la pantalla). */
+    getBandLayout(tc, L) {
+      const size = tc.bandSize, pad = tc.textScalePad, margin = tc.textScaleMargin;
+      const h = Math.round(size * 1.15) + 2 * pad;
+      const y = tc.bandPos === "t" ? L.sy + margin : (tc.bandPos === "m" ? Math.round(L.cy - h / 2) : L.sy + L.sh - h - margin);
+      return { x: L.sx, y, w: L.sw, h, size, pad };
+    },
+
+    /**
+     * Franja de texto de un solo tamaño (estilo cartel/test pattern).
+     * Quieta: muestra los mensajes en fila. Animada: "slide" = marquesina infinita; "typing" = tipea cada mensaje en turno.
+     */
+    drawBand(ctx, tc, L, u) {
+      const B = this.getBandLayout(tc, L);
+      const msgs = this.getBandMessages(tc);
+      const fam = tc.bandFont === "sans" ? FONT_MAIN : FONT_MONO;
+      const mode = (u !== null && u !== undefined && tc.tcAnimate) ? tc.tcTextAnim : "off";
+      const cyc = tc.tcTextCycles;
+      const frac = (v) => ((v % 1) + 1) % 1;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(B.x, B.y, B.w, B.h);
+      ctx.clip();
+      if (tc.bandBg) {
+        ctx.fillStyle = tc.bandBgColor;
+        ctx.fillRect(B.x, B.y, B.w, B.h);
+      }
+      ctx.font = `700 ${B.size}px ${fam}`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = tc.textScaleColor;
+      const ty = Math.round(B.y + B.h / 2 + B.size * 0.04);
+      if (mode === "slide" && cyc !== 0) {
+        const unit = msgs.join(tc.bandSep) + tc.bandSep;
+        const uw = Math.max(1, ctx.measureText(unit).width);
+        const x0 = B.x + B.pad - frac(cyc * u) * uw;
+        for (let x = x0 - uw; x < B.x + B.w; x += uw) ctx.fillText(unit, Math.round(x), ty);
+      } else if (mode === "typing" && cyc !== 0) {
+        const f = frac(Math.abs(cyc) * u);
+        const M = msgs.length;
+        const slot = f * M;
+        const idx = Math.min(M - 1, Math.floor(slot));
+        const g = slot - idx;
+        const msg = msgs[idx];
+        let prog;
+        if (g < 0.6) prog = g / 0.6;
+        else if (g < 0.9) prog = 1;
+        else prog = 1 - (g - 0.9) / 0.1;
+        const str = msg.slice(0, Math.round(prog * msg.length));
+        const x = B.x + B.pad;
+        if (str) ctx.fillText(str, x, ty);
+        if (g < 0.6 || g >= 0.9 || Math.floor(g * 24) % 2 === 0) {
+          ctx.fillRect(x + Math.round(ctx.measureText(str).width), Math.round(B.y + B.h / 2 - B.size * 0.5), Math.max(2, Math.round(B.size * 0.09)), B.size);
+        }
+      } else {
+        ctx.fillText(msgs.join(tc.bandSep), B.x + B.pad, ty);
+      }
+      ctx.restore();
+    },
+
+    /** Texto en escala (grande, mediano, chico): posición, relleno y fondo configurables. */
+    drawTextScale(ctx, tc, L, u) {
+      ctx.save();
+      ctx.textBaseline = "top";
+      ctx.textAlign = "left";
+      const measure = (sz, text) => { ctx.font = `600 ${sz}px ${FONT_MAIN}`; return ctx.measureText(text).width; };
+      const T = this.getTextScaleLayout(tc, L, measure, u);
+      if (tc.textScaleBg) {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(T.x, T.y, T.W, T.H);
+      }
+      ctx.fillStyle = tc.textScaleColor;
+      T.lines.forEach((ln) => {
+        ctx.font = `600 ${ln.sz}px ${FONT_MAIN}`;
+        const str = T.text.slice(0, ln.n);
+        const ty = T.y + ln.y + Math.round((ln.lh - ln.sz) / 2);
+        if (str) ctx.fillText(str, T.x + ln.x, ty);
+        if (ln.cur) {
+          const cw = Math.max(2, Math.round(ln.sz * 0.09));
+          ctx.fillRect(T.x + ln.x + Math.round(ctx.measureText(str).width), ty, cw, ln.sz);
+        }
+      });
       ctx.restore();
     },
 
@@ -4214,6 +4536,7 @@
         document.getElementById("opt-tc-circle-fill-enabled").checked = tc.circleFillEnabled;
         document.getElementById("opt-tc-circle-fill").value = tc.circleFill;
         document.getElementById("opt-tc-line-color").value = tc.lineColor;
+        this.renderGlobalTcExtra();
       }
       const cellModeSel = document.getElementById("opt-cell-mode");
       if (cellModeSel) {
@@ -4228,6 +4551,127 @@
         document.getElementById("opt-cell-mod-h").value = cs.modH;
         document.getElementById("opt-cell-target-px").value = cs.targetPx;
       }
+    },
+
+    /** HTML de los controles extra del test card (barra personalizada, texto en escala, animación). Compartido global / por pantalla. */
+    tcExtraHTML(tc, isScreen) {
+      const A = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+      const chk = (key, val) => `<input type="checkbox" data-tc="${key}" ${val ? "checked" : ""}>`;
+      const num = (key, val, min, max, kind) => `<input type="number" class="form-input" data-tc="${key}" data-num="${kind || "int"}" min="${min}" max="${max}" step="1" value="${A(val)}">`;
+      const sel = (key, val, opts) => `<select class="form-select" data-tc="${key}">${opts.map(([v, l]) => `<option value="${v}" ${v === val ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+      let h = `<p class="small-text" style="margin:10px 0 4px;">Barra de colores personalizada</p>
+        <label class="setting-row"><span>Activar barra</span>${chk("customBar", tc.customBar)}</label>`;
+      if (tc.customBar) {
+        h += `<div class="form-grid-3">
+          <div class="form-group"><label>Posición</label>${sel("customBarPos", tc.customBarPos, [["top", "Arriba"], ["bottom", "Abajo"]])}</div>
+          <div class="form-group"><label>Tipo</label>${sel("customBarMode", tc.customBarMode, [["gradient", "Degradado"], ["blocks", "Bloques"]])}</div>
+          <div class="form-group"><label>Colores</label>${num("customBarCount", tc.customBarCount, 2, 8)}</div>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0;">
+          ${tc.customBarColors.slice(0, tc.customBarCount).map((c, i) => `<input type="color" class="color-input-native" data-tc="customBarColors" data-idx="${i}" value="${c}">`).join("")}
+        </div>`;
+      }
+      h += `<p class="small-text" style="margin:10px 0 4px;">Texto en escala (3 tamaños)</p>
+        <label class="setting-row"><span>Activar texto</span>${chk("textScale", tc.textScale)}</label>`;
+      if (tc.textScale) {
+        h += `<div class="form-group"><label>Estilo</label>${sel("textScaleMode", tc.textScaleMode, [["sizes", "3 tamaños"], ["band", "Franja (un tamaño)"]])}</div>`;
+        if (tc.textScaleMode === "band") {
+          h += `<div class="form-group"><label>Textos (uno por línea; se repiten en loop)</label>
+            <textarea class="form-input" rows="4" maxlength="600" data-tc="bandText" style="resize:vertical;font-family:inherit;">${A(tc.bandText)}</textarea></div>
+          <div class="form-grid-3">
+            <div class="form-group"><label><span>Tamaño</span><span class="label-unit">px</span></label>${num("bandSize", tc.bandSize, 4, 600)}</div>
+            <div class="form-group"><label>Fuente</label>${sel("bandFont", tc.bandFont, [["mono", "Monoespaciada"], ["sans", "Sans"]])}</div>
+            <div class="form-group"><label>Separador</label><input type="text" class="form-input" maxlength="12" data-tc="bandSep" value="${A(tc.bandSep)}"></div>
+          </div>
+          <div class="form-grid-3">
+            <div class="form-group"><label>Color</label><input type="color" class="color-input-native" data-tc="textScaleColor" value="${tc.textScaleColor}"></div>
+            <div class="form-group"><label><span>Relleno</span><span class="label-unit">px</span></label>${num("textScalePad", tc.textScalePad, 0, 200)}</div>
+            <div class="form-group"><label><span>Margen</span><span class="label-unit">px</span></label>${num("textScaleMargin", tc.textScaleMargin, 0, 500)}</div>
+          </div>
+          <div class="form-grid-3">
+            <div class="form-group"><label>Posición</label>${sel("bandPos", tc.bandPos, [["t", "Arriba"], ["m", "Centro"], ["b", "Abajo"]])}</div>
+            <div class="form-group"><label>Fondo</label>${chk("bandBg", tc.bandBg)}</div>
+            <div class="form-group"><label>Color fondo</label><input type="color" class="color-input-native" data-tc="bandBgColor" value="${tc.bandBgColor}"></div>
+          </div>`;
+        } else {
+        h += `<div class="form-group"><label>Texto</label><input type="text" class="form-input" maxlength="24" data-tc="textScaleText" value="${A(tc.textScaleText)}"></div>
+        <div class="form-grid-3">
+          <div class="form-group"><label><span>Grande</span><span class="label-unit">px</span></label>${num("textScaleSize1", tc.textScaleSize1, 2, 600)}</div>
+          <div class="form-group"><label><span>Mediano</span><span class="label-unit">px</span></label>${num("textScaleSize2", tc.textScaleSize2, 2, 600)}</div>
+          <div class="form-group"><label><span>Chico</span><span class="label-unit">px</span></label>${num("textScaleSize3", tc.textScaleSize3, 2, 600)}</div>
+        </div>
+        <div class="form-grid-3">
+          <div class="form-group"><label>Color</label><input type="color" class="color-input-native" data-tc="textScaleColor" value="${tc.textScaleColor}"></div>
+          <div class="form-group"><label><span>Relleno</span><span class="label-unit">px</span></label>${num("textScalePad", tc.textScalePad, 0, 200)}</div>
+          <div class="form-group"><label><span>Margen</span><span class="label-unit">px</span></label>${num("textScaleMargin", tc.textScaleMargin, 0, 500)}</div>
+        </div>
+        <label class="setting-row"><span>Fondo negro</span>${chk("textScaleBg", tc.textScaleBg)}</label>
+        <div class="form-group"><label>Posición</label>
+          <div style="display:grid;grid-template-columns:repeat(3,32px);gap:3px;">
+            ${[["tl", "↖"], ["t", "↑"], ["tr", "↗"], ["l", "←"], ["c", "●"], ["r", "→"], ["bl", "↙"], ["b", "↓"], ["br", "↘"]].map(([v, g]) =>
+              `<button type="button" data-tc="textScalePos" data-val="${v}" class="btn btn-sm ${tc.textScalePos === v ? "btn-primary" : "btn-secondary"}" style="padding:0;height:26px;">${g}</button>`).join("")}
+          </div>
+        </div>`;
+
+        }
+      }
+      h += `<p class="small-text" style="margin:10px 0 4px;">Círculo con degradado: forma</p>
+        <div class="form-group">${sel("gradShape", tc.gradShape, [["sphere", "Esfera"], ["cube", "Cubo"]])}</div>`;
+      if (isScreen) return h + `<p class="small-text" style="margin:10px 0 4px;">La animación del test card se configura en Ajustes y vale para todas las pantallas.</p>`;
+      h += `<p class="small-text" style="margin:10px 0 4px;">Animación (video)</p>
+        <label class="setting-row"><span>Animar test card (con cualquier efecto)</span>${chk("tcAnimate", tc.tcAnimate)}</label>`;
+      {
+        h += `<div class="form-grid-3">
+          <div class="form-group"><label>Barras (ciclos/loop)</label>${num("tcBarCycles", tc.tcBarCycles, -16, 16)}</div>
+          <div class="form-group"><label>Texto</label>${sel("tcTextAnim", tc.tcTextAnim, [["off", "Quieto"], ["typing", "Tipeo"], ["slide", "Desplazar / marquesina"]])}</div>
+          <div class="form-group"><label>Texto (ciclos/loop)</label>${num("tcTextCycles", tc.tcTextCycles, -16, 16)}</div>
+        </div>
+        <div class="form-grid-3">
+          <div class="form-group"><label>Luz / cubo (ciclos/loop)</label>${num("tcShapeCycles", tc.tcShapeCycles, -16, 16)}</div>
+        </div>
+        <p class="small-text">Con el efecto "Test card" del panel de animación se anima siempre; el check sirve para animarlo junto con otros efectos. Los ciclos son enteros para que el loop cierre sin salto; negativo invierte el sentido y 0 deja quieto.</p>`;
+      }
+      return h;
+    },
+
+    /** Enlaza (una sola vez por contenedor) los controles extra del test card. */
+    bindTcExtra(container, apply, getTc, rebuild) {
+      const handle = (e) => {
+        const el = e.target;
+        const key = el && el.dataset ? el.dataset.tc : null;
+        if (!key) return;
+        const isBtn = el.tagName === "BUTTON";
+        const discrete = isBtn || el.type === "checkbox" || el.tagName === "SELECT";
+        if (isBtn !== (e.type === "click")) return;
+        if (e.type === "input" && discrete) return;
+        if (e.type === "change" && !discrete && key !== "customBarCount") return;
+        let val;
+        if (isBtn) val = el.dataset.val;
+        else if (el.type === "checkbox") val = el.checked;
+        else if (el.dataset.num !== undefined) {
+          val = parseFloat(el.value);
+          if (isNaN(val)) return;
+          val = Math.max(parseFloat(el.min), Math.min(parseFloat(el.max), val));
+          if (el.dataset.num === "int") val = Math.round(val);
+        } else val = el.value;
+        if (el.dataset.idx !== undefined) {
+          const arr = getTc().customBarColors.slice();
+          arr[parseInt(el.dataset.idx, 10)] = val;
+          val = arr;
+        }
+        apply(key, val);
+        if ((e.type === "change" || e.type === "click") && (discrete || key === "customBarCount")) rebuild();
+      };
+      container.addEventListener("click", handle);
+      container.addEventListener("input", handle);
+      container.addEventListener("change", handle);
+    },
+
+    renderGlobalTcExtra(force) {
+      const ex = document.getElementById("opt-tc-extra");
+      if (!ex) return;
+      if (!force && ex.contains(document.activeElement) && document.activeElement !== ex) return;
+      ex.innerHTML = this.tcExtraHTML(RenderEngine.getTestCardSettings(null));
     },
 
     bindSettingsControls() {
@@ -4360,6 +4804,15 @@
         const el = document.getElementById(id);
         if (el) el.addEventListener("input", (e) => setGlobalTc(key, e.target.value));
       });
+      const btnTcAll = document.getElementById("btn-tc-reset-screens");
+      if (btnTcAll) btnTcAll.addEventListener("click", () => {
+        state.screens.forEach((scr) => { delete scr.testCard; });
+        this.updateActiveScreenForm();
+        RenderEngine.render();
+        Persistence.saveAuto();
+      });
+      const tcEx = document.getElementById("opt-tc-extra");
+      if (tcEx) this.bindTcExtra(tcEx, setGlobalTc, () => RenderEngine.getTestCardSettings(null), () => this.renderGlobalTcExtra(true));
       document.getElementById("opt-cell-mode").addEventListener("change", (e) => {
         state.settings.cellMode = e.target.value;
         this.updateDisplayModeControls();
@@ -4526,7 +4979,7 @@
       const delayGroup = document.getElementById("anim-seq-delay").closest(".form-group");
       if (delayGroup) delayGroup.classList.toggle("hidden", isRand);
 
-      document.getElementById("anim-seq-params").classList.toggle("hidden", a.effect === "strobe" || a.effect === "cell_sequence" || a.effect === "ramp_anim");
+      document.getElementById("anim-seq-params").classList.toggle("hidden", a.effect === "strobe" || a.effect === "cell_sequence" || a.effect === "ramp_anim" || a.effect === "testcard");
       this.updateRampAnimControls(a);
       this.updateCellSeqControls(a);
       document.getElementById("anim-seq-off-group").classList.toggle("hidden", a.effect !== "sequence");
@@ -4969,6 +5422,7 @@
               <input type="color" id="screen-tc-line-color" class="color-input-native" value="${tc.lineColor}">
             </div>
           </div>
+          <div id="screen-tc-extra">${UIController.tcExtraHTML(tc, true)}</div>
           <div class="form-group">
             <button type="button" id="btn-screen-tc-global" class="btn btn-secondary btn-sm">Usar configuración global</button>
           </div>`;
@@ -5375,7 +5829,7 @@
       const scrTcBar = getEl("screen-tc-color-bar");
       if (scrTcBar) {
         const setScreenTc = (key, val) => {
-          screen.testCard = { ...RenderEngine.getTestCardSettings(screen), [key]: val };
+          screen.testCard = { ...(screen.testCard || {}), [key]: val };
           RenderEngine.render();
           Persistence.saveAuto();
         };
@@ -5418,6 +5872,8 @@
           const el = getEl(id);
           if (el) el.addEventListener("input", (e) => setScreenTc(key, e.target.value));
         });
+        const scrTcEx = getEl("screen-tc-extra");
+        if (scrTcEx) this.bindTcExtra(scrTcEx, setScreenTc, () => RenderEngine.getTestCardSettings(screen), () => this.updateActiveScreenForm());
         getEl("btn-screen-tc-global").addEventListener("click", () => {
           delete screen.testCard;
           RenderEngine.render();
@@ -6206,7 +6662,10 @@
         // Bits por píxel y por cuadro: los degradados y las líneas finas necesitan mucho más bitrate que un video común
         const bpp = quality === "max" ? 0.5 : quality === "high" ? 0.25 : 0.12;
         // Bits por segundo (entero)
-        const baseBitrate = Math.round(Math.max(8_000_000, Math.min(200_000_000, encW * encH * fps * bpp)));
+        const bitrateFor = (w, h) => Math.round(Math.max(8_000_000, Math.min(200_000_000, w * h * fps * bpp)));
+        const fullW = encW, fullH = encH;
+        let baseBitrate = bitrateFor(encW, encH);
+        let scaled = false;
 
         // Aviso de lienzo grande (límites H.264: nivel 5.1 = 4096 px de lado y 983 040 macrobloques/s)
         const macroblocksPerSec = Math.ceil(encW / 16) * Math.ceil(encH / 16) * fps;
@@ -6222,32 +6681,57 @@
         setStatus("Cargando librería de exportación…");
         mb = await import("https://cdn.jsdelivr.net/npm/mediabunny@1.62.1/dist/bundles/mediabunny.min.mjs");
 
-        // b. Soporte del codificador con el bitrate elegido; si no, probar bitrates menores
+        // b. Soporte del codificador con el bitrate elegido; si no, bitrates menores; si no, escalar el lienzo
         stage = "comprobación del codificador H.264 (canEncodeVideo)";
-        let bitrate = 0;
-        for (const factor of [1, 0.8, 0.6, 0.4, 0.25]) {
-          const candidate = Math.round(baseBitrate * factor);
-          if (await mb.canEncodeVideo("avc", { width: encW, height: encH, bitrate: candidate })) {
-            bitrate = candidate;
+        const findBitrate = async (w, h, base) => {
+          for (const factor of [1, 0.8, 0.6, 0.4, 0.25]) {
+            const candidate = Math.round(base * factor);
+            if (await mb.canEncodeVideo("avc", { width: w, height: h, bitrate: candidate })) return candidate;
+          }
+          return 0;
+        };
+        let bitrate = await findBitrate(encW, encH, baseBitrate);
+        if (!bitrate) {
+          // Tamaños alternativos con la misma proporción (lados pares)
+          const even = (v) => Math.max(2, Math.round(v / 2) * 2);
+          for (const maxSide of [4096, 3840, 2560, 1920]) {
+            const k = Math.min(1, maxSide / Math.max(fullW, fullH));
+            if (k >= 1) continue;
+            const w = even(fullW * k), h = even(fullH * k);
+            const b = await findBitrate(w, h, bitrateFor(w, h));
+            if (!b) continue;
+            const ok = confirm(`Este navegador no puede codificar H.264 a ${fullW} × ${fullH} px / ${fps} fps.\n\n` +
+              `¿Exportar el MP4 reducido a ${w} × ${h} px?\n(Para resolución completa sin pérdida usá "Exportar secuencia PNG" y convertí con ffmpeg.)`);
+            if (!ok) { setStatus("Exportación MP4 cancelada."); return; }
+            encW = w; encH = h; baseBitrate = bitrateFor(w, h); bitrate = b; scaled = true;
             break;
           }
         }
         if (!bitrate) {
-          throw new Error(`Este navegador no puede codificar H.264 a ${encW} × ${encH} px / ${fps} fps ni con bitrate reducido ` +
-            `(probado hasta ${(Math.round(baseBitrate * 0.25) / 1e6).toFixed(1)} Mbps). Bajá los fps a 25/24, la calidad o la resolución del lienzo, o probá en Chrome/Edge.`);
+          throw new Error(`Este navegador no puede codificar H.264 a ${fullW} × ${fullH} px / ${fps} fps ni reduciendo el tamaño. ` +
+            `Bajá los fps, la resolución del lienzo, o usá "Exportar secuencia PNG" y convertí con ffmpeg.`);
         }
         const usedMbps = (bitrate / 1e6).toFixed(1);
         const bitrateNote = bitrate === baseBitrate
-          ? `Bitrate: ${usedMbps} Mbps${useDither ? " · dither" : ""}.`
+          ? `Bitrate: ${usedMbps} Mbps${useDither ? " · dither" : ""}${scaled ? ` · escalado a ${encW}×${encH}` : ""}.`
           : `Bitrate pedido ${(baseBitrate / 1e6).toFixed(1)} Mbps no aceptado; se usó ${usedMbps} Mbps.`;
 
         const totalFrames = Math.max(1, Math.round(AnimationEngine.getLoopDuration() * fps));
 
         // c. Canvas fuera de pantalla (nuevo)
         offscreen = document.createElement("canvas");
-        offscreen.width = encW;
-        offscreen.height = encH;
-        const oCtx = offscreen.getContext("2d", { alpha: false, willReadFrequently: useDither });
+        offscreen.width = fullW;
+        offscreen.height = fullH;
+        const oCtx = offscreen.getContext("2d", { alpha: false, willReadFrequently: useDither && !scaled });
+        let encCanvas = offscreen, eCtx = oCtx;
+        if (scaled) {
+          encCanvas = document.createElement("canvas");
+          encCanvas.width = encW;
+          encCanvas.height = encH;
+          eCtx = encCanvas.getContext("2d", { alpha: false, willReadFrequently: useDither });
+          eCtx.imageSmoothingEnabled = true;
+          eCtx.imageSmoothingQuality = "high";
+        }
         let yuvBuf = null;
         if (useDither) yuvBuf = new Uint8Array(encW * encH * 3 / 2);
 
@@ -6271,7 +6755,7 @@
           target: new mb.BufferTarget()
         });
         const encCfg = { codec: "avc", bitrate, keyFrameInterval: 1, latencyMode: "quality" };
-        source = useDither ? new mb.VideoSampleSource(encCfg) : new mb.CanvasSource(offscreen, encCfg);
+        source = useDither ? new mb.VideoSampleSource(encCfg) : new mb.CanvasSource(encCanvas, encCfg);
         output.addVideoTrack(source, { frameRate: fps });
         await output.start();
 
@@ -6280,8 +6764,9 @@
         for (let i = 0; i < totalFrames; i++) {
           if (this.mp4Cancelled) break;
           drawAnimationFrame(oCtx, i / fps, { mask });
+          if (scaled) eCtx.drawImage(offscreen, 0, 0, encW, encH);
           if (useDither) {
-            const img = oCtx.getImageData(0, 0, encW, encH);
+            const img = eCtx.getImageData(0, 0, encW, encH);
             this.rgbaToI420Dither(img.data, encW, encH, yuvBuf, i, true);
             const sample = new mb.VideoSample(yuvBuf, {
               format: "I420", codedWidth: encW, codedHeight: encH,
@@ -6488,18 +6973,42 @@
               defs.push(`    <linearGradient id="${gId}" gradientUnits="userSpaceOnUse" x1="${L.barX}" y1="${L.botBarY}" x2="${L.barX + L.barW}" y2="${L.botBarY}"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#000000"/></linearGradient>`);
               out.push(`      <rect x="${L.barX}" y="${L.botBarY}" width="${L.barW}" height="${L.barH}" fill="url(#${gId})"/>`);
             }
+            if (tc.customBar) {
+              const cols = tc.customBarColors.slice(0, tc.customBarCount);
+              const by = tc.customBarPos === "top" ? L.cbTopY : L.cbBotY;
+              if (tc.customBarMode === "blocks") {
+                const bw = L.barW / cols.length;
+                cols.forEach((c, i) => {
+                  const bx = Math.round(L.barX + i * bw), bx2 = Math.round(L.barX + (i + 1) * bw);
+                  out.push(`      <rect x="${bx}" y="${by}" width="${bx2 - bx}" height="${L.cbH}" fill="${esc(c)}"/>`);
+                });
+              } else {
+                const gId = uniqueId(`${gid}_tc_custom`, "tc_custom");
+                const st = cols.map((c, i) => `<stop offset="${num(cols.length > 1 ? i / (cols.length - 1) : 0)}" stop-color="${esc(c)}"/>`).join("");
+                defs.push(`    <linearGradient id="${gId}" gradientUnits="userSpaceOnUse" x1="${L.barX}" y1="${by}" x2="${L.barX + L.barW}" y2="${by}">${st}</linearGradient>`);
+                out.push(`      <rect x="${L.barX}" y="${by}" width="${L.barW}" height="${L.cbH}" fill="url(#${gId})"/>`);
+              }
+            }
             if (tc.circle) {
               const cFill = tc.circleFillEnabled ? esc(tc.circleFill) : "none";
               out.push(`      <circle cx="${L.cx}" cy="${L.cy}" r="${L.r}" fill="${cFill}" stroke="${esc(tc.circleStroke)}" stroke-width="${L.strokeW}"/>`);
             }
             if (tc.gradCircle) {
               const gc = RenderEngine.getGradCircleGeometry(tc, L);
+              if (tc.gradShape === "cube") {
+                const strokeCube = tc.gradCircleStrokeEnabled ? ` stroke="${esc(tc.gradCircleStrokeColor)}" stroke-width="${tc.gradCircleStrokeWidth}" stroke-linejoin="round"` : "";
+                RenderEngine.getCubeFaces(gc, 35, tc.gradCircleInvert).forEach((f) => {
+                  const pts = f.pts.map((q) => `${num(q[0])},${num(q[1])}`).join(" ");
+                  out.push(`      <polygon points="${pts}" fill="rgb(${f.g},${f.g},${f.g})"${strokeCube}/>`);
+                });
+              } else {
               const gId = uniqueId(`${gid}_tc_gc`, "tc_gc");
               const inner = tc.gradCircleInvert ? "#000000" : "#ffffff";
               const outer = tc.gradCircleInvert ? "#ffffff" : "#000000";
               defs.push(`    <radialGradient id="${gId}" gradientUnits="userSpaceOnUse" cx="${gc.cx}" cy="${gc.cy}" r="${num(gc.r)}"><stop offset="0" stop-color="${inner}"/><stop offset="1" stop-color="${outer}"/></radialGradient>`);
               const strokeAttr = tc.gradCircleStrokeEnabled ? ` stroke="${esc(tc.gradCircleStrokeColor)}" stroke-width="${tc.gradCircleStrokeWidth}"` : "";
               out.push(`      <circle cx="${gc.cx}" cy="${gc.cy}" r="${num(gc.r)}" fill="url(#${gId})"${strokeAttr}/>`);
+              }
             }
             if (tc.cross) {
               const ch = Math.floor(L.strokeW / 2);
@@ -6511,6 +7020,23 @@
             if (tc.diagonals) {
               out.push(`      <line x1="${L.sx}" y1="${L.sy}" x2="${L.sx + L.sw}" y2="${L.sy + L.sh}" stroke="${esc(tc.lineColor)}" stroke-width="${L.strokeW}"/>`);
               out.push(`      <line x1="${L.sx + L.sw}" y1="${L.sy}" x2="${L.sx}" y2="${L.sy + L.sh}" stroke="${esc(tc.lineColor)}" stroke-width="${L.strokeW}"/>`);
+            }
+            if (tc.textScale && tc.textScaleMode === "band") {
+              const B = RenderEngine.getBandLayout(tc, L);
+              const fam = esc((tc.bandFont === "sans" ? FONT_MAIN : FONT_MONO).replace(/"/g, "'"));
+              const cId = uniqueId(`${gid}_tc_band_clip`, "tc_band_clip");
+              defs.push(`    <clipPath id="${cId}"><rect x="${B.x}" y="${B.y}" width="${B.w}" height="${B.h}"/></clipPath>`);
+              out.push(`      <g clip-path="url(#${cId})">`);
+              if (tc.bandBg) out.push(`        <rect x="${B.x}" y="${B.y}" width="${B.w}" height="${B.h}" fill="${esc(tc.bandBgColor)}"/>`);
+              out.push(`        <text x="${B.x + B.pad}" y="${Math.round(B.y + B.h / 2 + B.size * 0.04)}" font-family="${fam}" font-weight="700" font-size="${B.size}" fill="${esc(tc.textScaleColor)}" dominant-baseline="middle" xml:space="preserve">${esc(RenderEngine.getBandMessages(tc).join(tc.bandSep))}</text>`);
+              out.push(`      </g>`);
+            } else if (tc.textScale) {
+              const T = RenderEngine.getTextScaleLayout(tc, L, (sz, text) => sz * 0.6 * text.length, null);
+              const fam = esc(FONT_MAIN.replace(/"/g, "'"));
+              if (tc.textScaleBg) out.push(`      <rect x="${T.x}" y="${T.y}" width="${T.W}" height="${T.H}" fill="#000000"/>`);
+              T.lines.forEach((ln) => {
+                out.push(`      <text x="${T.x + ln.x}" y="${T.y + ln.y + Math.round((ln.lh - ln.sz) / 2)}" font-family="${fam}" font-weight="600" font-size="${ln.sz}" fill="${esc(tc.textScaleColor)}" dominant-baseline="hanging">${esc(T.text)}</text>`);
+              });
             }
           }
           out.push(`    </g>`);
