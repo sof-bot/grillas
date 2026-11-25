@@ -1430,7 +1430,8 @@
         bandFont: "mono",
         bandPos: "b",
         bandBg: true,
-        bandBgColor: "#000000"
+        bandBgColor: "#000000",
+        bandBgMode: "fit"
       };
       const g = (state.settings && state.settings.testCard) || {};
       const own = this.getOwnTestCard(screen);
@@ -1493,6 +1494,7 @@
         bandPos: (src.bandPos === "t" || src.bandPos === "m") ? src.bandPos : "b",
         bandBg: src.bandBg !== false,
         bandBgColor: hex(src.bandBgColor, def.bandBgColor),
+        bandBgMode: src.bandBgMode === "full" ? "full" : "fit",
         gradShape: src.gradShape === "cube" ? "cube" : "sphere",
         tcShapeCycles: Math.round(clamp(gsrc.tcShapeCycles, def.tcShapeCycles, -16, 16))
       };
@@ -1873,7 +1875,16 @@
     },
 
     /** Geometría del bloque de texto en 3 tamaños. measure(sz, text) devuelve el ancho; u = posición 0..1 en el loop (o null). */
+    /** Área útil para texto: si hay marco ajedrezado, se mide desde su borde interior. */
+    insetLayout(tc, L) {
+      if (!tc.frame) return L;
+      const nx = Math.max(2, Math.round(L.sw / tc.frameSize)), ny = Math.max(2, Math.round(L.sh / tc.frameSize));
+      const ix = Math.round(L.sw / nx), iy = Math.round(L.sh / ny);
+      return { ...L, sx: L.sx + ix, sy: L.sy + iy, sw: L.sw - 2 * ix, sh: L.sh - 2 * iy };
+    },
+
     getTextScaleLayout(tc, L, measure, u) {
+      L = this.insetLayout(tc, L);
       const text = tc.textScaleText || "Aa";
       const base = [tc.textScaleSize1, tc.textScaleSize2, tc.textScaleSize3];
       const mode = (u !== null && u !== undefined && tc.tcAnimate) ? tc.tcTextAnim : "off";
@@ -1934,7 +1945,8 @@
     },
 
     /** Geometría de la franja de texto (ancho completo de la pantalla). */
-    getBandLayout(tc, L) {
+    getBandLayout(tc, L, u) {
+      L = this.insetLayout(tc, L);
       const pad = tc.textScalePad, padX = tc.textScalePadX, margin = tc.textScaleMargin;
       // Tamaño: preset relativo al ancho de cada pantalla (chico/mediano/grande) o px fijos
       let size = tc.bandSizeMode === "px"
@@ -1952,7 +1964,17 @@
       size = Math.max(6, size);
       const h = Math.round(size * 1.15) + 2 * pad;
       const y = tc.bandPos === "t" ? L.sy + margin : (tc.bandPos === "m" ? Math.round(L.cy - h / 2) : L.sy + L.sh - h - margin);
-      return { x: L.sx, y, w: L.sw, h, size, pad, padX };
+      // Ancho del fondo: ajustado al texto (salvo marquesina, que ocupa todo el ancho) o completo
+      let bw = L.sw;
+      const mode = (u !== null && u !== undefined && tc.tcAnimate) ? tc.tcTextAnim : "off";
+      if (tc.bandBgMode !== "full" && mode !== "slide") {
+        const mc = this._bandMC || (this._bandMC = document.createElement("canvas").getContext("2d"));
+        mc.font = `700 ${size}px ${tc.bandFont === "sans" ? FONT_MAIN : FONT_MONO}`;
+        const msgs = this.getBandMessages(tc);
+        const tw = mode === "typing" ? Math.max(...msgs.map((m) => mc.measureText(m).width)) : mc.measureText(msgs.join(tc.bandSep)).width;
+        bw = Math.min(L.sw, Math.round(tw + 2 * padX));
+      }
+      return { x: L.sx, y, w: bw, h, size, pad, padX };
     },
 
     /**
@@ -1960,7 +1982,7 @@
      * Quieta: muestra los mensajes en fila. Animada: "slide" = marquesina infinita; "typing" = tipea cada mensaje en turno.
      */
     drawBand(ctx, tc, L, u) {
-      const B = this.getBandLayout(tc, L);
+      const B = this.getBandLayout(tc, L, u);
       const msgs = this.getBandMessages(tc);
       const fam = tc.bandFont === "sans" ? FONT_MAIN : FONT_MONO;
       const mode = (u !== null && u !== undefined && tc.tcAnimate) ? tc.tcTextAnim : "off";
@@ -4663,7 +4685,8 @@
             <div class="form-group"><label>Posición</label>${sel("bandPos", tc.bandPos, [["t", "Arriba"], ["m", "Centro"], ["b", "Abajo"]])}</div>
             <div class="form-group"><label>Fondo</label>${chk("bandBg", tc.bandBg)}</div>
             <div class="form-group"><label>Color fondo</label><input type="color" class="color-input-native" data-tc="bandBgColor" value="${tc.bandBgColor}"></div>
-          </div>`;
+          </div>
+          <div class="form-group"><label>Ancho del fondo</label>${sel("bandBgMode", tc.bandBgMode, [["fit", "Ajustado al texto"], ["full", "Ancho completo"]])}</div>`;
         } else {
         h += `<div class="form-group"><label>Texto</label><input type="text" class="form-input" maxlength="24" data-tc="textScaleText" value="${A(tc.textScaleText)}"></div>
         <div class="form-grid-3">
@@ -7094,7 +7117,7 @@
               out.push(`      <line x1="${L.sx + L.sw}" y1="${L.sy}" x2="${L.sx}" y2="${L.sy + L.sh}" stroke="${esc(tc.lineColor)}" stroke-width="${L.strokeW}"/>`);
             }
             if (tc.textScale && tc.textScaleMode === "band") {
-              const B = RenderEngine.getBandLayout(tc, L);
+              const B = RenderEngine.getBandLayout(tc, L, null);
               const fam = esc((tc.bandFont === "sans" ? FONT_MAIN : FONT_MONO).replace(/"/g, "'"));
               const cId = uniqueId(`${gid}_tc_band_clip`, "tc_band_clip");
               defs.push(`    <clipPath id="${cId}"><rect x="${B.x}" y="${B.y}" width="${B.w}" height="${B.h}"/></clipPath>`);
