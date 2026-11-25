@@ -1395,6 +1395,8 @@
         gradCircleStrokeEnabled: false,
         gradCircleStrokeColor: "#ffffff",
         gradCircleStrokeWidth: 2,
+        frame: false,
+        frameSize: 50,
         customBar: false,
         customBarPos: "bottom",
         customBarMode: "gradient",
@@ -1457,6 +1459,8 @@
         gradCircleStrokeEnabled: !!src.gradCircleStrokeEnabled,
         gradCircleStrokeColor: hex(src.gradCircleStrokeColor, def.gradCircleStrokeColor),
         gradCircleStrokeWidth: Math.round(clamp(src.gradCircleStrokeWidth, def.gradCircleStrokeWidth, 1, 20)),
+        frame: !!src.frame,
+        frameSize: Math.round(clamp(src.frameSize, def.frameSize, 4, 300)),
         customBar: !!src.customBar,
         customBarPos: src.customBarPos === "top" ? "top" : "bottom",
         customBarMode: src.customBarMode === "blocks" ? "blocks" : "gradient",
@@ -1777,7 +1781,23 @@
         else this.drawTextScale(ctx, tc, L, tcU);
       }
 
+      if (tc.frame) {
+        this.getFrameCells(tc, L).forEach((c) => { ctx.fillStyle = c.w ? "#ffffff" : "#000000"; ctx.fillRect(c.x, c.y, c.w2, c.h); });
+      }
+
       ctx.restore();
+    },
+
+    /** Marco ajedrezado blanco/negro en el borde de la pantalla (una celda de grosor, cierra en las esquinas). */
+    getFrameCells(tc, L) {
+      const size = tc.frameSize;
+      const nx = Math.max(2, Math.round(L.sw / size)), ny = Math.max(2, Math.round(L.sh / size));
+      const xs = (i) => Math.round(L.sx + i * L.sw / nx), ys = (j) => Math.round(L.sy + j * L.sh / ny);
+      const cells = [];
+      const add = (i, j) => cells.push({ x: xs(i), y: ys(j), w2: xs(i + 1) - xs(i), h: ys(j + 1) - ys(j), w: (i + j) % 2 === 0 });
+      for (let i = 0; i < nx; i++) { add(i, 0); add(i, ny - 1); }
+      for (let j = 1; j < ny - 1; j++) { add(0, j); add(nx - 1, j); }
+      return cells;
     },
 
     /** Caras visibles de un cubo girado (proyección ortogonal) con luz fija; devuelve polígonos y gris de cada cara. */
@@ -4600,7 +4620,12 @@
       const chk = (key, val) => `<input type="checkbox" data-tc="${key}" ${val ? "checked" : ""}>`;
       const num = (key, val, min, max, kind) => `<input type="number" class="form-input" data-tc="${key}" data-num="${kind || "int"}" min="${min}" max="${max}" step="1" value="${A(val)}">`;
       const sel = (key, val, opts) => `<select class="form-select" data-tc="${key}">${opts.map(([v, l]) => `<option value="${v}" ${v === val ? "selected" : ""}>${l}</option>`).join("")}</select>`;
-      let h = `<p class="small-text" style="margin:10px 0 4px;">Barra de colores personalizada</p>
+      let h = `<p class="small-text" style="margin:10px 0 4px;">Marco ajedrezado (borde)</p>
+        <label class="setting-row"><span>Activar marco</span>${chk("frame", tc.frame)}</label>`;
+      if (tc.frame) {
+        h += `<div class="form-group"><label><span>Tamaño de celda</span><span class="label-unit">px</span></label>${num("frameSize", tc.frameSize, 4, 300)}</div>`;
+      }
+      h += `<p class="small-text" style="margin:10px 0 4px;">Barra de colores personalizada</p>
         <label class="setting-row"><span>Activar barra</span>${chk("customBar", tc.customBar)}</label>`;
       if (tc.customBar) {
         h += `<div class="form-grid-3">
@@ -7084,6 +7109,14 @@
               T.lines.forEach((ln) => {
                 out.push(`      <text x="${T.x + ln.x}" y="${T.y + ln.y + Math.round((ln.lh - ln.sz) / 2)}" font-family="${fam}" font-weight="600" font-size="${ln.sz}" fill="${esc(tc.textScaleColor)}" dominant-baseline="hanging">${esc(T.text)}</text>`);
               });
+            }
+            if (tc.frame) {
+              const fc = RenderEngine.getFrameCells(tc, L);
+              out.push(`      <g shape-rendering="crispEdges">`);
+              out.push(`        <rect x="${L.sx}" y="${L.sy}" width="${L.sw}" height="${L.sh}" fill="none"/>`);
+              fc.filter((c) => c.w).forEach((c) => out.push(`        <rect x="${c.x}" y="${c.y}" width="${c.w2}" height="${c.h}" fill="#ffffff"/>`));
+              fc.filter((c) => !c.w).forEach((c) => out.push(`        <rect x="${c.x}" y="${c.y}" width="${c.w2}" height="${c.h}" fill="#000000"/>`));
+              out.push(`      </g>`);
             }
           }
           out.push(`    </g>`);
