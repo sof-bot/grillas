@@ -7548,6 +7548,66 @@
   /* ===========================================================================
    * 11. INITIALIZATION
    * =========================================================================== */
+  /**
+   * Campo HEX junto a cada selector de color: se puede escribir #RRGGBB (o RRGGBB) y queda sincronizado con el selector.
+   * Funciona también con los controles que se regeneran (observa el DOM).
+   */
+  const HexColorFields = {
+    HEX_RE: /^#?([0-9a-fA-F]{6})$/,
+    enhance(root) {
+      root.querySelectorAll('input[type="color"]:not([data-hexed])').forEach((cp) => {
+        cp.dataset.hexed = "1";
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:flex;align-items:center;gap:6px;";
+        cp.parentNode.insertBefore(wrap, cp);
+        wrap.appendChild(cp);
+        const tx = document.createElement("input");
+        tx.type = "text";
+        tx.className = "form-input hex-input";
+        tx.maxLength = 7;
+        tx.spellcheck = false;
+        tx.setAttribute("aria-label", "Color HEX");
+        tx.style.cssText = "width:78px;min-width:0;font-family:ui-monospace,Consolas,monospace;text-transform:uppercase;padding:4px 6px;";
+        tx.value = cp.value;
+        wrap.appendChild(tx);
+        const push = () => {
+          const m = this.HEX_RE.exec(tx.value.trim());
+          if (!m) return;
+          const v = "#" + m[1].toLowerCase();
+          if (cp.value !== v) {
+            cp.value = v;
+            cp.dispatchEvent(new Event("input", { bubbles: true }));
+            cp.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        };
+        tx.addEventListener("input", push);
+        tx.addEventListener("change", () => { push(); tx.value = cp.value; });
+        tx.addEventListener("blur", () => { tx.value = cp.value; });
+        cp.addEventListener("input", () => { tx.value = cp.value; });
+        cp.addEventListener("change", () => { tx.value = cp.value; });
+        cp._hexField = tx;
+      });
+    },
+    /** Refleja cambios de valor hechos por código (al cargar proyecto, cambiar de pantalla...). */
+    sync(root) {
+      root.querySelectorAll('input[type="color"][data-hexed]').forEach((cp) => {
+        const tx = cp._hexField;
+        if (tx && document.activeElement !== tx && tx.value.toLowerCase() !== cp.value) tx.value = cp.value;
+      });
+    },
+    init() {
+      const root = document.body;
+      this.enhance(root);
+      let pending = false;
+      new MutationObserver(() => {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(() => { pending = false; this.enhance(root); });
+      }).observe(root, { childList: true, subtree: true });
+      setInterval(() => this.sync(root), 400);
+    }
+  };
+
   window.addEventListener("DOMContentLoaded", async () => {
     const canvasEl = document.getElementById("mapping-canvas");
     const workspaceEl = document.getElementById("canvas-workspace");
@@ -7559,6 +7619,7 @@
     await Persistence.init();
     UIController.init();
     HistoryEngine.reset();
+    HexColorFields.init();
 
     RenderEngine.render();
     setTimeout(() => {
